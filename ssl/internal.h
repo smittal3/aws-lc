@@ -2784,6 +2784,12 @@ struct SSL3_STATE {
   // received.
   uint8_t warning_alert_count = 0;
 
+
+  // State of post handshake authentication. Can be any state from |SSL_PHA_STATE|
+  // Default state is SSL_PHA_NONE but can change to SSL_PHA_EXT_SENT, SSL_PHA_EXT_RECEIVED
+  // SSL_PHA_REQUEST_PENDING, SSL_PHA_REQUESTED
+  uint8_t pha_ext = 0;
+
   // ech_status indicates whether ECH was accepted by the server.
   ssl_ech_status_t ech_status = ssl_ech_none;
 
