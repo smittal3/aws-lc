@@ -545,6 +545,10 @@ BSSL_NAMESPACE_END
 
 using namespace bssl;
 
+long SSL_get_verify_result_pha(const SSL *ssl) {
+  return NULL;
+}
+
 X509 *SSL_get_peer_certificate(const SSL *ssl) {
   check_ssl_x509_method(ssl);
   if (ssl == NULL) {

@@ -929,6 +929,23 @@ static int ssl_do_post_handshake(SSL *ssl, const SSLMessage &msg) {
   return 1;
 }
 
+// Sets pha_ext's value in SSL_CTX
+void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val) {
+
+}
+
+// Sets pha_ext's value in SSL
+void SSL_set_post_handshake_auth(SSL *ssl, int val) {
+
+}
+
+// Initiates CertificateRequest to authenticate client post handshake
+int SSL_verify_client_post_handshake(SSL *ssl) {
+  return 0;
+}
+
+
+
 int SSL_process_quic_post_handshake(SSL *ssl) {
   ssl_reset_error_state(ssl);
 

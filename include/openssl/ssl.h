@@ -4500,6 +4500,29 @@ OPENSSL_EXPORT int SSL_CTX_set_max_send_fragment(SSL_CTX *ctx,
 OPENSSL_EXPORT int SSL_set_max_send_fragment(SSL *ssl,
                                              size_t max_send_fragment);
 
+
+
+// SSL_CTX_set_post_handshake_auth and SSL_set_post_handshake_auth enable the
+// Post-Handshake Authentication extension to be added to the ClientHello
+// such that post-handshake authentication can be requested by the server.
+// If val is 0 then the extension is not sent, otherwise it is.
+// By default the extension is not sent. A certificate callback will need to be set
+// via SSL_CTX_set_client_cert_cb() if no certificate is provided at initialization.
+OPENSSL_EXPORT void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val);
+OPENSSL_EXPORT void SSL_set_post_handshake_auth(SSL *ssl, int val);
+
+// Causes a CertificateRequest message to be sent by a server on the given ssl connection.
+// The SSL_VERIFY_PEER flag must be set; the SSL_VERIFY_POST_HANDSHAKE flag is optional.
+OPENSSL_EXPORT int SSL_verify_client_post_handshake(SSL *ssl);
+
+
+// Returns the status of post handshake authentication. Returns X509_V_OK if
+// peer certificate is provided and valid and NULL otherwise. The function calls
+// SSL_get_peer_certificate to ensure a peer certificate has been provided
+// and SSL_get_verify_result to ensure the provided certificate is valid
+OPENSSL_EXPORT long SSL_get_verify_result_pha(const SSL *ssl);
+
+
 // ssl_early_callback_ctx (aka |SSL_CLIENT_HELLO|) is passed to certain
 // callbacks that are called very early on during the server handshake. At this
 // point, much of the SSL* hasn't been filled out and only the ClientHello can
