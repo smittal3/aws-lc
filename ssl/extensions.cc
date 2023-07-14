@@ -3089,6 +3089,20 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
   return true;
 }
 
+// Adds pha_ext to the client hello
+static bool ext_pha_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
+                                    CBB *out_compressible, ssl_client_hello_type_t type)  {
+  return false;
+}
+
+// Parses pha_ext from client hello
+static bool ext_pha_parse_clienthello(SSL_HANDSHAKE *hs,
+                                      uint8_t *out_alert,
+                                      CBS *contents)  {
+  return false;
+}
+
+
 // kExtensions contains all the supported extensions.
 static const struct tls_extension kExtensions[] = {
   {
@@ -3262,6 +3276,13 @@ static const struct tls_extension kExtensions[] = {
     ignore_parse_clienthello,
     ext_alps_add_serverhello,
   },
+  {
+    TLSEXT_TYPE_post_handshake_auth,
+    ext_pha_add_clienthello,
+    forbid_parse_serverhello,
+    ext_pha_parse_clienthello,
+    dont_add_serverhello,
+    },
 };
 
 #define kNumExtensions (sizeof(kExtensions) / sizeof(struct tls_extension))
