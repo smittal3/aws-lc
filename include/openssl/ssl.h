@@ -2627,6 +2627,11 @@ OPENSSL_EXPORT int SSL_set1_groups_list(SSL *ssl, const char *groups);
 // if and only if Channel ID is not negotiated.
 #define SSL_VERIFY_PEER_IF_NO_OBC 0x04
 
+// SSL_VERIFY_POST_HANDSHAKE configures a server to request a client certificate
+// after the initial handshake is complete instead of in the initial handshake. Must
+// be used with |SSL_VERIFY_PEER|, otherwise it will have no effect.
+#define SSL_VERIFY_POST_HANDSHAKE 0x08
+
 // SSL_CTX_set_verify configures certificate verification behavior. |mode| is
 // one of the |SSL_VERIFY_*| values defined above. |callback|, if not NULL, is
 // used to customize certificate verification, but is deprecated. See
