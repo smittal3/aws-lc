@@ -4644,7 +4644,8 @@ typedef enum {
   SSL_PHA_ENABLED = 1,
   SSL_PHA_EXT_SENT = 2,        /* client-side only: extension sent */
   SSL_PHA_EXT_RECEIVED = 3,    /* server-side only: extension received */
-  SSL_PHA_REQUESTED = 4       /* server-side only: request sent by server */
+  SSL_PHA_REQUESTED = 4,       /* server-side only: request sent by server */
+  SSL_PHA_REQUEST_PENDING = 5 /* server-side only: request needs to be sent by server */
 } SSL_PHA_STATE;
 
 // SSL_CB_* are possible values for the |type| parameter in the info
