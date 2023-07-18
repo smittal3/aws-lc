@@ -545,6 +545,8 @@ BSSL_NAMESPACE_END
 
 using namespace bssl;
 
+// Returns the status of PHA based on results of |SSL_get_peer_certificate| and
+// |SSL_get_verify_result|
 long SSL_get_verify_result_pha(const SSL *ssl) {
   if(SSL_get_peer_certificate(ssl) != NULL && SSL_get_verify_result(ssl) == X509_V_OK) {
     return true;

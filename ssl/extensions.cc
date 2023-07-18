@@ -3120,8 +3120,7 @@ static bool ext_pha_parse_clienthello(SSL_HANDSHAKE *hs,
     return true;
   }
 
-  // Should not be anything other than 0
-  if(CBS_len(contents) != 0) {
+  if(CBS_len(contents) == 0) {
     return false;
   }
 

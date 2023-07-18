@@ -8707,6 +8707,63 @@ TEST(SSLTest, ProcessTLS13NewSessionTicket) {
                                                     sizeof(kTicket)));
 }
 
+TEST(SSLTest, SetPHAExtCTX) {
+  // Configure client and server to negotiate TLS 1.3 only.
+  bssl::UniquePtr<SSL_CTX> client_ctx(SSL_CTX_new(TLS_method()));
+  bssl::UniquePtr<SSL_CTX> server_ctx(
+      CreateContextWithTestCertificate(TLS_method()));
+  ASSERT_TRUE(client_ctx);
+  ASSERT_TRUE(server_ctx);
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
+
+  EXPECT_EQ(client_ctx.get()->pha_ext, SSL_PHA_NONE);
+  // Client enabled pha_ext in CTX before connection object is created
+  SSL_CTX_set_post_handshake_auth(client_ctx.get(), SSL_PHA_ENABLED);
+  EXPECT_EQ(client_ctx.get()->pha_ext, SSL_PHA_ENABLED);
+
+  bssl::UniquePtr<SSL> client, server;
+  ASSERT_TRUE(ConnectClientAndServer(&client, &server, client_ctx.get(),
+                                     server_ctx.get()));
+  EXPECT_EQ(TLS1_3_VERSION, SSL_version(client.get()));
+
+  // Since CTX had it enabled, SSL object should also have it enabled.
+  // Should be |SSL_PHA_EXT_SENT| after connection since we are not actually conducting
+  // the post handshake authentication here
+  EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_EXT_SENT);
+}
+
+TEST(SSLTest, SetPHAExtSSL) {
+  // Configure client and server to negotiate TLS 1.3 only.
+  bssl::UniquePtr<SSL_CTX> client_ctx(SSL_CTX_new(TLS_method()));
+  bssl::UniquePtr<SSL_CTX> server_ctx(
+      CreateContextWithTestCertificate(TLS_method()));
+  ASSERT_TRUE(client_ctx);
+  ASSERT_TRUE(server_ctx);
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
+
+
+  EXPECT_EQ(client_ctx.get()->pha_ext, SSL_PHA_NONE);
+
+  // Create client and server
+  bssl::UniquePtr<SSL> client, server;
+  ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
+                                     server_ctx.get()));
+  EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_NONE);
+
+  SSL_set_post_handshake_auth(client.get(), SSL_PHA_ENABLED);
+  EXPECT_EQ(SSL_PHA_ENABLED, client.get()->s3->pha_ext);
+
+  EXPECT_TRUE(CompleteHandshakes(client.get(), server.get()));
+  EXPECT_EQ(TLS1_3_VERSION, SSL_version(client.get()));
+  EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_EXT_SENT);
+}
+
 TEST(SSLTest, BIO) {
   bssl::UniquePtr<SSL_CTX> client_ctx(SSL_CTX_new(TLS_method()));
   bssl::UniquePtr<SSL_CTX> server_ctx(
