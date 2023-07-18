@@ -4641,10 +4641,10 @@ typedef enum {TLS_ST_OK = SSL_ST_OK, TLS_ST_BEFORE = SSL_ST_INIT} OSSL_HANDSHAKE
 // SSL_PHA_STATE enumerates possible Post Handshake Authentication states
 typedef enum {
   SSL_PHA_NONE = 0,
-  SSL_PHA_EXT_SENT = 1,        /* client-side only: extension sent */
-  SSL_PHA_EXT_RECEIVED = 2,    /* server-side only: extension received */
-  SSL_PHA_REQUEST_PENDING = 3, /* server-side only: request pending */
-  SSL_PHA_REQUESTED = 4       /* request received by client, or sent by server */
+  SSL_PHA_ENABLED = 1,
+  SSL_PHA_EXT_SENT = 2,        /* client-side only: extension sent */
+  SSL_PHA_EXT_RECEIVED = 3,    /* server-side only: extension received */
+  SSL_PHA_REQUESTED = 4       /* server-side only: request sent by server */
 } SSL_PHA_STATE;
 
 // SSL_CB_* are possible values for the |type| parameter in the info
