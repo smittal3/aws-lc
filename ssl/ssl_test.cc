@@ -8788,10 +8788,84 @@ TEST(SSLTest, PHAReceiveServer) {
   EXPECT_EQ(SSL_PHA_ENABLED, client.get()->s3->pha_ext);
 
   SSL_do_handshake(client.get());
+  EXPECT_EQ(SSL_PHA_EXT_SENT, client.get()->s3->pha_ext);
+
   SSL_do_handshake(server.get());
 
   // After client hello, if pha_ext is sent, server should change pha_ext to RECEIVED
   EXPECT_EQ(server.get()->s3->pha_ext, SSL_PHA_EXT_RECEIVED);
+}
+
+TEST(SSLTest, PHAMacroBehaviorEnabled) {
+  // Configure client and server to negotiate TLS 1.3 only.
+  bssl::UniquePtr<SSL_CTX> client_ctx(SSL_CTX_new(TLS_method()));
+  bssl::UniquePtr<SSL_CTX> server_ctx(
+      CreateContextWithTestCertificate(TLS_method()));
+  ASSERT_TRUE(client_ctx);
+  ASSERT_TRUE(server_ctx);
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
+
+  EXPECT_EQ(client_ctx.get()->pha_ext, SSL_PHA_NONE);
+  SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER | SSL_VERIFY_POST_HANDSHAKE, nullptr);
+  // Create client and server
+  bssl::UniquePtr<SSL> client, server;
+  ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
+                                    server_ctx.get()));
+  EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_NONE);
+
+  SSL_set_post_handshake_auth(client.get(), 1);
+  EXPECT_EQ(SSL_PHA_ENABLED, client.get()->s3->pha_ext);
+
+  // First client flight
+  SSL_do_handshake(client.get());
+  EXPECT_EQ(SSL_PHA_EXT_SENT, client.get()->s3->pha_ext);
+  EXPECT_FALSE(server.get()->s3->hs->cert_request);
+
+  // First server read and flight
+  SSL_do_handshake(server.get());
+  // After server processes client hello, since SSL_VERIFY_POST_HANDSHAKE is set, server
+  // should have cert_request be false and pha_ext should indicate request is pending
+  EXPECT_EQ(SSL_PHA_REQUEST_PENDING, server.get()->s3->pha_ext);
+  EXPECT_FALSE(server.get()->s3->hs->cert_request);
+}
+
+TEST(SSLTest, PHAMacroBehaviorDisabled) {
+  // Configure client and server to negotiate TLS 1.3 only.
+  bssl::UniquePtr<SSL_CTX> client_ctx(SSL_CTX_new(TLS_method()));
+  bssl::UniquePtr<SSL_CTX> server_ctx(
+      CreateContextWithTestCertificate(TLS_method()));
+  ASSERT_TRUE(client_ctx);
+  ASSERT_TRUE(server_ctx);
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
+
+  EXPECT_EQ(client_ctx.get()->pha_ext, SSL_PHA_NONE);
+  SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER, nullptr);
+  // Create client and server
+  bssl::UniquePtr<SSL> client, server;
+  ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
+                                    server_ctx.get()));
+  EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_NONE);
+
+  SSL_set_post_handshake_auth(client.get(), 1);
+  EXPECT_EQ(SSL_PHA_ENABLED, client.get()->s3->pha_ext);
+
+  // First client flight
+  SSL_do_handshake(client.get());
+  EXPECT_EQ(SSL_PHA_EXT_SENT, client.get()->s3->pha_ext);
+  EXPECT_FALSE(server.get()->s3->hs->cert_request);
+
+  // First server read and flight
+  SSL_do_handshake(server.get());
+  // After server processes client hello, since SSL_VERIFY_POST_HANDSHAKE is not set, server
+  // should have cert_request be true and pha_ext should indicate extension received
+  EXPECT_EQ(SSL_PHA_EXT_RECEIVED, server.get()->s3->pha_ext);
+  EXPECT_TRUE(server.get()->s3->hs->cert_request);
 }
 
 TEST(SSLTest, BIO) {
