@@ -931,17 +931,18 @@ static int ssl_do_post_handshake(SSL *ssl, const SSLMessage &msg) {
   return 1;
 }
 
-// Sets pha_ext's value in SSL_CTX
+// Sets pha_ext value in SSL_CTX
 void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val) {
   ctx->pha_ext = val;
 }
 
-// Sets pha_ext's value in SSL
+// Sets pha_ext value in SSL
 void SSL_set_post_handshake_auth(SSL *ssl, int val) {
   ssl->s3->pha_ext = val;
 }
 
 // Initiates CertificateRequest to authenticate client post handshake
+// TO-DO
 int SSL_verify_client_post_handshake(SSL *ssl) {
   return 0;
 }

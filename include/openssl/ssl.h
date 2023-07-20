@@ -4509,11 +4509,12 @@ OPENSSL_EXPORT int SSL_set_max_send_fragment(SSL *ssl,
 
 
 // SSL_CTX_set_post_handshake_auth and SSL_set_post_handshake_auth enable the
-// Post-Handshake Authentication extension to be added to the ClientHello
+// Post-Handshake Authentication extension (pha_ext) to be added to the ClientHello
 // such that post-handshake authentication can be requested by the server.
-// If val is 0 then the extension is not sent, otherwise it is.
-// By default the extension is not sent. A certificate callback will need to be set
-// via SSL_CTX_set_client_cert_cb() if no certificate is provided at initialization.
+// If val is 0 then the extension is not sent, if it is 1 then it is.
+// By default, the extension is not sent. On the client side, a certificate callback
+// will need to be set via SSL_CTX_set_client_cert_cb() if no certificate is
+// provided at initialization.
 OPENSSL_EXPORT void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val);
 OPENSSL_EXPORT void SSL_set_post_handshake_auth(SSL *ssl, int val);
 
