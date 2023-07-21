@@ -1209,15 +1209,43 @@ static enum ssl_hs_wait_t do_read_client_finished(SSL_HANDSHAKE *hs) {
         !tls13_derive_resumption_secret(hs)) {
       return ssl_hs_error;
     }
+  }
+  // Process PHA if applicable
+  hs->tls13_state = state13_send_certificate_request_pha;
+  ssl->method->next_message(ssl);
+  return ssl_hs_ok;
+}
 
+static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
+  SSL *const ssl = hs->ssl;
+
+  // Cert request wasn't sent in initial handshake but client auth is requested
+  if(!hs->cert_request && ssl->s3->pha_ext == SSL_PHA_REQUEST_PENDING) {
+
+    // Put the CertificateRequest on wire, we don't flush until the next server write
+    if(!SSL_verify_client_post_handshake(ssl)) {
+      return ssl_hs_error;
+    }
+    // Transition pha_ext state to indicate CertificateRequest has been sent
+    ssl->s3->pha_ext = SSL_PHA_REQUESTED;
+  }
+
+
+  // In TLS 1.3, the CertificateRequest (in PHA) isn't flushed until the server
+  // performs a write, to prevent a non-reading client from causing the server
+  // to hang in the case of a small server write buffer. Consumers which don't '
+  // write data to the client will need to do a zero-byte write if they wish to
+  // flush the request.
+
+  // Transition state
+  if (!ssl->s3->early_data_accepted) {
     // We send post-handshake tickets as part of the handshake in 1-RTT.
     hs->tls13_state = state13_send_new_session_ticket;
   } else {
-    // We already sent half-RTT tickets.
     hs->tls13_state = state13_done;
   }
 
-  ssl->method->next_message(ssl);
+
   return ssl_hs_ok;
 }
 
@@ -1289,6 +1317,9 @@ enum ssl_hs_wait_t tls13_server_handshake(SSL_HANDSHAKE *hs) {
         break;
       case state13_read_client_finished:
         ret = do_read_client_finished(hs);
+        break;
+      case state13_send_certificate_request_pha:
+        ret = do_certificate_request_pha(hs);
         break;
       case state13_send_new_session_ticket:
         ret = do_send_new_session_ticket(hs);

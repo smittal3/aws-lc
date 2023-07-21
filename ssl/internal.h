@@ -1731,6 +1731,7 @@ enum tls13_server_hs_state_t {
   state13_read_client_finished,
   state13_send_new_session_ticket,
   state13_done,
+  state13_send_certificate_request_pha
 };
 
 // handback_t lists the points in the state machine where a handback can occur.
