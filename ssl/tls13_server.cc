@@ -1219,7 +1219,8 @@ static enum ssl_hs_wait_t do_read_client_finished(SSL_HANDSHAKE *hs) {
 static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
 
-  // Cert request wasn't sent in initial handshake but client auth is requested
+  // Cert request wasn't sent in initial handshake but client auth is requested,
+  // otherwise skip this step
   if(!hs->cert_request && ssl->s3->pha_ext == SSL_PHA_REQUEST_PENDING) {
 
     // Put the CertificateRequest on wire, we don't flush until the next server write
@@ -1229,7 +1230,6 @@ static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
     // Transition pha_ext state to indicate CertificateRequest has been sent
     ssl->s3->pha_ext = SSL_PHA_REQUESTED;
   }
-
 
   // In TLS 1.3, the CertificateRequest (in PHA) isn't flushed until the server
   // performs a write, to prevent a non-reading client from causing the server
@@ -1244,7 +1244,6 @@ static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
   } else {
     hs->tls13_state = state13_done;
   }
-
 
   return ssl_hs_ok;
 }
