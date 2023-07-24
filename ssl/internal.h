@@ -1654,6 +1654,17 @@ struct DC {
 bool ssl_signing_with_dc(const SSL_HANDSHAKE *hs);
 
 
+// SSL_PHA_STATE enumerates possible Post Handshake Authentication states
+typedef enum {
+  SSL_PHA_NONE = 0,
+  SSL_PHA_ENABLED = 1,
+  SSL_PHA_EXT_SENT = 2,        /* client-side only: extension sent */
+  SSL_PHA_EXT_RECEIVED = 3,    /* server-side only: extension received */
+  SSL_PHA_REQUESTED = 4,       /* server-side only: request sent by server */
+  SSL_PHA_REQUEST_PENDING = 5 /* server-side only: request needs to be sent by server */
+} SSL_PHA_STATE;
+
+
 // Handshake functions.
 
 enum ssl_hs_wait_t {
