@@ -8779,7 +8779,7 @@ TEST(SSLTest, PHAMacroBehaviorEnabled) {
   // First client flight
   SSL_do_handshake(client.get());
   EXPECT_EQ(SSL_PHA_EXT_SENT, client.get()->s3->pha_ext);
-  EXPECT_EQ(SSL_PHA_NONE, client.get()->s3->pha_ext);
+  EXPECT_EQ(SSL_PHA_NONE, server.get()->s3->pha_ext);
 
   // Default value is false, no server side processing so far so should be FALSE
   EXPECT_FALSE(server.get()->s3->hs->cert_request);
@@ -8826,7 +8826,7 @@ TEST(SSLTest, PHAMacroBehaviorDisabled) {
   // First client flight
   SSL_do_handshake(client.get());
   EXPECT_EQ(SSL_PHA_EXT_SENT, client.get()->s3->pha_ext);
-  EXPECT_EQ(SSL_PHA_NONE, client.get()->s3->pha_ext);
+  EXPECT_EQ(SSL_PHA_NONE, server.get()->s3->pha_ext);
 
   // Default value is false, no server side processing so far so should be FALSE
   EXPECT_FALSE(server.get()->s3->hs->cert_request);
