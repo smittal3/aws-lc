@@ -4513,7 +4513,7 @@ OPENSSL_EXPORT int SSL_set_max_send_fragment(SSL *ssl,
 // such that post-handshake authentication can be requested by the server.
 // If val is 0 then the extension is not sent, if it is 1 then it is.
 // By default, the extension is not sent. On the client side, a certificate callback
-// will need to be set via SSL_CTX_set_client_cert_cb() if no certificate is
+// will need to be set via |SSL_CTX_set_client_cert_cb| if no certificate is
 // provided at initialization.
 OPENSSL_EXPORT void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val);
 OPENSSL_EXPORT void SSL_set_post_handshake_auth(SSL *ssl, int val);
