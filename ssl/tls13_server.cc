@@ -282,7 +282,7 @@ static enum ssl_ticket_aead_result_t select_session(
   // sends pre_shared_key without psk_key_exchange_modes.
   CBS unused;
   if (!ssl_client_hello_get_extension(client_hello, &unused,
-                                      TLSEXT_TYPE_psk_key_exchange_modes)) {
+                                        TLSEXT_TYPE_psk_key_exchange_modes)) {
     *out_alert = SSL_AD_MISSING_EXTENSION;
     OPENSSL_PUT_ERROR(SSL, SSL_R_MISSING_EXTENSION);
     return ssl_ticket_aead_error;
