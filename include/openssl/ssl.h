@@ -4518,8 +4518,10 @@ OPENSSL_EXPORT int SSL_set_max_send_fragment(SSL *ssl,
 OPENSSL_EXPORT void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val);
 OPENSSL_EXPORT void SSL_set_post_handshake_auth(SSL *ssl, int val);
 
-// Causes a CertificateRequest message to be sent by a server on the given ssl connection.
-// The SSL_VERIFY_PEER flag must be set; the SSL_VERIFY_POST_HANDSHAKE flag is optional.
+// SSL_verify_client_post_handshake lets the server send a CertificateRequest
+// message on the given ssl connection.
+// The |SSL_VERIFY_PEER| flag must be set; the |SSL_VERIFY_POST_HANDSHAKE| flag is optional.
+// These flags can be set via |SSL_CTX_set_verify| for |SSL_CTX| or |SSL_set_verify| for |SSL|.
 OPENSSL_EXPORT int SSL_verify_client_post_handshake(SSL *ssl);
 
 
