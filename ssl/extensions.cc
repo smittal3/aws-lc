@@ -3116,7 +3116,7 @@ static bool ext_pha_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
 static bool ext_pha_parse_clienthello(SSL_HANDSHAKE *hs,
                                       uint8_t *out_alert,
                                       CBS *contents)  {
-  if(contents == NULL || hs->min_version < TLS1_3_VERSION) {
+  if(contents == nullptr || hs->min_version < TLS1_3_VERSION) {
     return true;
   }
 
