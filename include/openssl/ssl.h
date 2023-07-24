@@ -4525,11 +4525,11 @@ OPENSSL_EXPORT void SSL_set_post_handshake_auth(SSL *ssl, int val);
 OPENSSL_EXPORT int SSL_verify_client_post_handshake(SSL *ssl);
 
 
-// Returns the status of post handshake authentication. Returns X509_V_OK if
-// peer certificate is provided and valid and NULL otherwise. The function calls
-// SSL_get_peer_certificate to ensure a peer certificate has been provided
-// and SSL_get_verify_result to ensure the provided certificate is valid
-OPENSSL_EXPORT long SSL_get_verify_result_pha(const SSL *ssl);
+// SSL_get_verify_result_pha returns the status of post handshake authentication. It
+// returns |X509_V_OK| if the peer certificate is provided and valid, and NULL otherwise.
+// The function calls |SSL_get_peer_certificate| to ensure a peer certificate has been provided
+// and |SSL_get_verify_result| to ensure the provided certificate is valid.
+    OPENSSL_EXPORT long SSL_get_verify_result_pha(const SSL *ssl);
 
 
 // ssl_early_callback_ctx (aka |SSL_CLIENT_HELLO|) is passed to certain
