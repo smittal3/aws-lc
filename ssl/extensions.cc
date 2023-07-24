@@ -3100,10 +3100,8 @@ static bool ext_pha_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
     return true;
   }
 
-  CBB contents;
   if (!CBB_add_u16(out_compressible, TLSEXT_TYPE_post_handshake_auth) ||
-      !CBB_add_u16_length_prefixed(out_compressible, &contents) ||
-      !CBB_add_u16(&contents, 0 /* empty "extension_data" field */) ||
+      !CBB_add_u16(out_compressible, 0 /* empty "extension_data" field */) ||
       !CBB_flush(out_compressible)) {
     return false;
   }
@@ -3120,7 +3118,8 @@ static bool ext_pha_parse_clienthello(SSL_HANDSHAKE *hs,
     return true;
   }
 
-  if(CBS_len(contents) == 0) {
+  // Should be empty
+  if(CBS_len(contents) != 0) {
     return false;
   }
 
