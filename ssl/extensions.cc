@@ -3096,7 +3096,7 @@ static bool ext_pha_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
 
   // post_handshake_auth is not supported in TLS versions < 1.3. Also checking
   // if extension has been enabled by client.
-  if(hs->min_version < TLS1_3_VERSION || ssl->s3->pha_ext != SSL_PHA_ENABLED) {
+  if(hs->min_version < TLS1_3_VERSION || ssl->s3->pha_enabled != 1) {
     return true;
   }
 

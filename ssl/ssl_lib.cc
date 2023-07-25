@@ -696,7 +696,7 @@ SSL *SSL_new(SSL_CTX *ctx) {
     return nullptr;
   }
 
-  ssl->s3->pha_ext = ctx->pha_ext;
+  ssl->s3->pha_enabled = ctx->pha_enabled;
 
   return ssl.release();
 }
@@ -931,14 +931,14 @@ static int ssl_do_post_handshake(SSL *ssl, const SSLMessage &msg) {
   return 1;
 }
 
-// Sets pha_ext value in SSL_CTX
+// Sets pha_enabled value in SSL_CTX, 0 is disabled, 1 is enabled
 void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val) {
-  ctx->pha_ext = val;
+  ctx->pha_enabled = val;
 }
 
-// Sets pha_ext value in SSL
+// Sets pha_enabled value in SSL, 0 is disabled, 1 is enabled
 void SSL_set_post_handshake_auth(SSL *ssl, int val) {
-  ssl->s3->pha_ext = val;
+  ssl->s3->pha_enabled = val;
 }
 
 // Initiates CertificateRequest to authenticate client post handshake

@@ -1657,13 +1657,11 @@ bool ssl_signing_with_dc(const SSL_HANDSHAKE *hs);
 // SSL_PHA_STATE enumerates possible Post Handshake Authentication states
 typedef enum {
   SSL_PHA_NONE = 0,
-  SSL_PHA_ENABLED = 1,
-  SSL_PHA_EXT_SENT = 2,        /* client-side only: extension sent */
-  SSL_PHA_EXT_RECEIVED = 3,    /* server-side only: extension received */
+  SSL_PHA_EXT_SENT = 1,        /* client-side only: extension sent */
+  SSL_PHA_EXT_RECEIVED = 2,    /* server-side only: extension received */
+  SSL_PHA_REQUEST_PENDING = 3, /* server-side only: request needs to be sent by server */
   SSL_PHA_REQUESTED = 4,       /* server-side only: request sent by server */
-  SSL_PHA_REQUEST_PENDING = 5 /* server-side only: request needs to be sent by server */
 } SSL_PHA_STATE;
-
 
 // Handshake functions.
 
@@ -2819,6 +2817,8 @@ struct SSL3_STATE {
 
   // State of post handshake authentication. Can be any state from SSL_PHA_STATE
   uint8_t pha_ext = 0;
+  // Holds whether PHA is enabled, by default it is not (value 0)
+  bool pha_enabled = 0;
 
   // ech_status indicates whether ECH was accepted by the server.
   ssl_ech_status_t ech_status = ssl_ech_none;
@@ -3895,8 +3895,8 @@ struct ssl_ctx_st {
   // |aes_hw_override| is true.
   bool aes_hw_override_value : 1;
 
-  // State of post handshake authentication. Can be any state from SSL_PHA_STATE
-  uint8_t pha_ext = 0;
+  // State of post handshake authentication, by default it's disabled (value 0)
+  bool pha_enabled = 0;
 
  private:
   ~ssl_ctx_st();
