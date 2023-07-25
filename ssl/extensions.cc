@@ -3123,8 +3123,7 @@ static bool ext_pha_parse_clienthello(SSL_HANDSHAKE *hs,
     return false;
   }
 
-  const SSL *const ssl = hs->ssl;
-  ssl->s3->pha_ext = SSL_PHA_EXT_RECEIVED;
+  hs->ssl->s3->pha_ext = SSL_PHA_EXT_RECEIVED;
 
   return true;
 }
