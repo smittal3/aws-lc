@@ -2185,6 +2185,10 @@ const char *tls13_server_handshake_state(SSL_HANDSHAKE *hs);
 // |SSL_KEY_UPDATE_NOT_REQUESTED|.
 bool tls13_add_key_update(SSL *ssl, int update_requested);
 
+// add_certificate_request queues a CertificateRequest message on |ssl|. Returns
+// true on success and false on failure.
+bool tls13_add_certificate_request(SSL *ssl);
+
 // tls13_post_handshake processes a post-handshake message. It returns true on
 // success and false on failure.
 bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg);

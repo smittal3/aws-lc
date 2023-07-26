@@ -213,6 +213,10 @@ static bool add_new_session_tickets(SSL_HANDSHAKE *hs, bool *out_sent_tickets) {
   return true;
 }
 
+bool tls13_add_certificate_request(SSL *ssl) {
+ return false;
+}
+
 static enum ssl_hs_wait_t do_select_parameters(SSL_HANDSHAKE *hs) {
   // At this point, most ClientHello extensions have already been processed by
   // the common handshake logic. Resolve the remaining non-PSK parameters.
@@ -1220,6 +1224,8 @@ static enum ssl_hs_wait_t do_read_client_finished(SSL_HANDSHAKE *hs) {
   return ssl_hs_ok;
 }
 
+// |do_certificate_request_pha| processes PHA when server request client
+// authentication immediately after the initial handshake.
 static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
 
@@ -1228,7 +1234,7 @@ static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
   if(!hs->cert_request && ssl->s3->pha_ext == SSL_PHA_REQUEST_PENDING) {
 
     // Put the CertificateRequest on wire, we don't flush until the next server write
-    if(!SSL_verify_client_post_handshake(ssl)) {
+    if(!tls13_add_certificate_request(ssl)) {
       return ssl_hs_error;
     }
     // Transition pha_ext state to indicate CertificateRequest has been sent
