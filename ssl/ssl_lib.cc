@@ -541,7 +541,8 @@ ssl_ctx_st::ssl_ctx_st(const SSL_METHOD *ssl_method)
       handoff(false),
       enable_early_data(false),
       aes_hw_override(false),
-      aes_hw_override_value(false) {
+      aes_hw_override_value(false),
+      pha_enabled(false) {
   CRYPTO_MUTEX_init(&lock);
   CRYPTO_new_ex_data(&ex_data);
 }

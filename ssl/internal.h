@@ -2814,10 +2814,11 @@ struct SSL3_STATE {
   uint8_t warning_alert_count = 0;
 
 
-  // State of post handshake authentication. Can be any state from SSL_PHA_STATE
+  // pha_ext holds the state of post handshake authentication.
+  // Can be any state from |SSL_PHA_STATE|
   uint8_t pha_ext = 0;
-  // Holds whether PHA is enabled, by default it is not (value 0)
-  bool pha_enabled = 0;
+  // pha_enabled indicates whether PHA is enabled. It is off by default.
+  bool pha_enabled : 1;
 
   // ech_status indicates whether ECH was accepted by the server.
   ssl_ech_status_t ech_status = ssl_ech_none;
@@ -3894,8 +3895,8 @@ struct ssl_ctx_st {
   // |aes_hw_override| is true.
   bool aes_hw_override_value : 1;
 
-  // State of post handshake authentication, by default it's disabled (value 0)
-  bool pha_enabled = 0;
+  // pha_enabled indicates whether PHA is enabled. It is off by default.
+  bool pha_enabled : 1;
 
  private:
   ~ssl_ctx_st();
