@@ -932,12 +932,10 @@ static int ssl_do_post_handshake(SSL *ssl, const SSLMessage &msg) {
   return 1;
 }
 
-// Sets pha_enabled value in SSL_CTX, 0 is disabled, 1 is enabled
 void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val) {
   ctx->pha_enabled = val;
 }
 
-// Sets pha_enabled value in SSL, 0 is disabled, 1 is enabled
 void SSL_set_post_handshake_auth(SSL *ssl, int val) {
   ssl->s3->pha_enabled = val;
 }
