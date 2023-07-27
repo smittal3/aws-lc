@@ -214,6 +214,7 @@ static bool add_new_session_tickets(SSL_HANDSHAKE *hs, bool *out_sent_tickets) {
 }
 
 bool tls13_add_certificate_request(SSL *ssl) {
+  //
  return false;
 }
 

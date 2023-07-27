@@ -3090,6 +3090,30 @@ struct ALPSConfig {
   Array<uint8_t> settings;
 };
 
+// PHA_Config contains configuration bits for post handshake authentication.
+// The struct is initialized if PHA is enabled by the client and shed
+// at the end of the connection
+struct PHA_Config {
+  // Holds negotiated sigalgs from the handshake for CertificateRequest message
+  Array<uint16_t> verify_sigalgs;
+//  if (hs->config->verify_sigalgs.empty()) {
+//    return Span<const uint16_t>(kVerifySignatureAlgorithms);
+//  }
+//  return hs->config->verify_sigalgs;
+
+  // Holds CA's accepted by the server for CertificateRequest message
+  const STACK_OF(CRYPTO_BUFFER) *names;
+  //= hs->config->client_CA.get();
+//  if (names == NULL) {
+//    names = hs->ssl->ctx->client_CA.get();
+//  }
+
+  // Holds original transcript hash for CertificateVerify from client response
+  uint8_t handshake_transcript_hash[EVP_MAX_MD_SIZE];
+  size_t handshake_transcript_hash_len;
+};
+
+
 // SSL_CONFIG contains configuration bits that can be shed after the handshake
 // completes.  Objects of this type are not shared; they are unique to a
 // particular |SSL|.
