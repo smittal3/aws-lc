@@ -2816,7 +2816,7 @@ struct SSL3_STATE {
 
   // pha_ext holds the state of post handshake authentication.
   // Can be any state from |SSL_PHA_STATE|
-  uint8_t pha_ext = 0;
+  SSL_PHA_STATE pha_ext = SSL_PHA_NONE;
   // pha_enabled indicates whether PHA is enabled. It is off by default.
   bool pha_enabled : 1;
 
