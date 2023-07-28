@@ -183,6 +183,7 @@ SSL3_STATE::SSL3_STATE()
 
 SSL3_STATE::~SSL3_STATE() {}
 
+
 bool tls_new(SSL *ssl) {
   UniquePtr<SSL3_STATE> s3 = MakeUnique<SSL3_STATE>();
   if (!s3) {

@@ -1225,10 +1225,32 @@ static enum ssl_hs_wait_t do_read_client_finished(SSL_HANDSHAKE *hs) {
   return ssl_hs_ok;
 }
 
+
 // |do_certificate_request_pha| processes PHA when server request client
 // authentication immediately after the initial handshake.
 static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
+
+  // PHA is enabled, store state needed for it
+  if(ssl->s3->pha_enabled && (ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED ||
+                               ssl->s3->pha_ext == SSL_PHA_REQUEST_PENDING )) {
+    // Initialize PHA_Config struct
+    ssl->s3->pha_config = MakeUnique<PHA_Config>();
+    if(ssl->s3->pha_config == nullptr) {
+      return ssl_hs_error;
+    }
+
+    // Get the sigalgs
+    ssl->s3->pha_config->verify_sigalgs = tls13_get_verify_sigalgs_pha(hs);
+
+    // Store the CAs if available
+    if(ssl_has_client_CAs(hs->config)) {
+      // Note, this value may be NULL
+      ssl->s3->pha_config->names = ssl_get_client_CAs(hs);
+    }
+
+    // TO-DO: Store the handshake transcript
+  }
 
   // Cert request wasn't sent in initial handshake but client auth is requested,
   // otherwise skip this step

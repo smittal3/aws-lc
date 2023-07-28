@@ -1388,6 +1388,10 @@ UniquePtr<STACK_OF(CRYPTO_BUFFER)> ssl_parse_client_CA_list(SSL *ssl,
                                                             uint8_t *out_alert,
                                                             CBS *cbs);
 
+// ssl_get_client_CAs creates a deep copy of the configured CA list and returns
+// a pointer to it. Otherwise, returns NULL.
+STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs(const SSL_HANDSHAKE *hs);
+
 // ssl_has_client_CAs returns there are configured CAs.
 bool ssl_has_client_CAs(const SSL_CONFIG *cfg);
 
@@ -2429,6 +2433,10 @@ bool tls12_add_verify_sigalgs(const SSL_HANDSHAKE *hs, CBB *out);
 bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
                              uint16_t sigalg);
 
+// tls13_get_verify_sigalgs_pha calls |tls12_get_verify_sigalgs| for the given
+// handshake object. It takes the sigalgs returned, creates a deep copy, and
+// returns the copy. These are used for PHA.
+Span<const uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs);
 
 // Underdocumented functions.
 //
@@ -2737,6 +2745,22 @@ enum ssl_ech_status_t {
   ssl_ech_rejected,
 };
 
+// PHA_Config contains configuration bits for post handshake authentication.
+// The struct is initialized if PHA is enabled by the client and shed
+// at the end of the connection
+struct PHA_Config {
+  static constexpr bool kAllowUniquePtr = true;
+  // Holds negotiated sigalgs from the handshake for CertificateRequest message
+  Span<const uint16_t> verify_sigalgs;
+
+  // Holds CA's accepted by the server for CertificateRequest message
+  const STACK_OF(CRYPTO_BUFFER) *names;
+
+  // Holds original transcript hash for CertificateVerify from client response
+  uint8_t handshake_transcript_hash[EVP_MAX_MD_SIZE];
+  size_t handshake_transcript_hash_len;
+};
+
 #define SSL3_SEND_ALERT_SIZE 2
 #define TLS_SEQ_NUM_SIZE 8
 #define SSL3_CHANNEL_ID_SIZE 64
@@ -2790,6 +2814,8 @@ struct SSL3_STATE {
   // read_error, if |read_shutdown| is |ssl_shutdown_error|, is the error for
   // the receive half of the connection.
   UniquePtr<ERR_SAVE_STATE> read_error;
+
+  UniquePtr<PHA_Config> pha_config;
 
   int total_renegotiations = 0;
 
@@ -3089,29 +3115,6 @@ struct DTLS1_STATE {
 struct ALPSConfig {
   Array<uint8_t> protocol;
   Array<uint8_t> settings;
-};
-
-// PHA_Config contains configuration bits for post handshake authentication.
-// The struct is initialized if PHA is enabled by the client and shed
-// at the end of the connection
-struct PHA_Config {
-  // Holds negotiated sigalgs from the handshake for CertificateRequest message
-  Array<uint16_t> verify_sigalgs;
-//  if (hs->config->verify_sigalgs.empty()) {
-//    return Span<const uint16_t>(kVerifySignatureAlgorithms);
-//  }
-//  return hs->config->verify_sigalgs;
-
-  // Holds CA's accepted by the server for CertificateRequest message
-  const STACK_OF(CRYPTO_BUFFER) *names;
-  //= hs->config->client_CA.get();
-//  if (names == NULL) {
-//    names = hs->ssl->ctx->client_CA.get();
-//  }
-
-  // Holds original transcript hash for CertificateVerify from client response
-  uint8_t handshake_transcript_hash[EVP_MAX_MD_SIZE];
-  size_t handshake_transcript_hash_len;
 };
 
 
