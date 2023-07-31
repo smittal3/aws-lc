@@ -1279,9 +1279,7 @@ static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
     // Store the CAs if available
     if(ssl_has_client_CAs(hs->config)) {
       // Note, this value may be NULL
-      ssl->s3->pha_config->names = ssl_get_client_CAs(hs);
-    } else {
-      ssl->s3->pha_config->names = NULL;
+      ssl->s3->pha_config->names = ssl_get_client_CAs_pha(hs);
     }
 
     // TO-DO: Store the handshake transcript

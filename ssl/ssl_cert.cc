@@ -728,7 +728,7 @@ UniquePtr<STACK_OF(CRYPTO_BUFFER)> ssl_parse_client_CA_list(SSL *ssl,
   return ret;
 }
 
-STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs(const SSL_HANDSHAKE *hs) {
+STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs_pha(const SSL_HANDSHAKE *hs) {
   STACK_OF(CRYPTO_BUFFER) *names = hs->config->client_CA.get();
   if (names == NULL) {
     names = hs->ssl->ctx->client_CA.get();

@@ -1393,9 +1393,9 @@ UniquePtr<STACK_OF(CRYPTO_BUFFER)> ssl_parse_client_CA_list(SSL *ssl,
                                                             uint8_t *out_alert,
                                                             CBS *cbs);
 
-// ssl_get_client_CAs creates a deep copy of the configured CA list and returns
-// a pointer to it. Otherwise, returns NULL.
-STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs(const SSL_HANDSHAKE *hs);
+// ssl_get_client_CAs_pha creates a deep copy of the configured CA list and
+// returns a pointer to it. Otherwise, returns NULL.
+STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs_pha(const SSL_HANDSHAKE *hs);
 
 // ssl_add_client_CA_list_pha adds the configured CA list to |cbb| in the format
 // used by a TLS CertificateRequest message. It returns true on success and
