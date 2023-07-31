@@ -214,8 +214,41 @@ static bool add_new_session_tickets(SSL_HANDSHAKE *hs, bool *out_sent_tickets) {
 }
 
 bool tls13_add_certificate_request(SSL *ssl) {
-  //
- return false;
+  ScopedCBB cbb;
+  CBB body, context, extensions, sigalg_contents, sigalgs_cbb, CA, CA_contents;
+  uint8_t request_context[16];
+  RAND_bytes(request_context, sizeof(request_context));
+
+  if (!ssl->method->init_message(ssl, cbb.get(), &body, SSL3_MT_CERTIFICATE_REQUEST) ||
+      // Random context to prevent replay attacks
+      !CBB_add_u16_length_prefixed(&body, &context) ||
+      !CBB_add_bytes(&context, request_context, sizeof(request_context)) ||
+      // add sigalgs extension
+      !CBB_add_u16_length_prefixed(&body, &extensions) ||
+      !CBB_add_u16(&extensions, TLSEXT_TYPE_signature_algorithms) ||
+      !CBB_add_u16_length_prefixed(&extensions,&sigalg_contents) ||
+      !CBB_add_u16_length_prefixed(&sigalg_contents, &sigalgs_cbb) ||
+      !tls13_add_verify_sigalgs_pha(ssl, &sigalgs_cbb)) {
+    return false;
+  }
+
+  // Add CA's if available
+  if (ssl->s3->pha_config->names) {
+    if (!CBB_add_u16(&extensions, TLSEXT_TYPE_certificate_authorities) ||
+        !CBB_add_u16_length_prefixed(&extensions, &CA_contents) ||
+        !ssl_add_client_CA_list_pha(ssl, &CA_contents) ||
+        !CBB_flush(&extensions)) {
+      return false;
+    }
+  }
+
+  // TO-DO: Have to check if add_message implicitly flushes the parent buffer
+  // or if we need to do so. It isn't manually flushed in other places.
+  if (!ssl_add_message_cbb(ssl, cbb.get())) {
+    return false;
+  }
+
+ return true;
 }
 
 static enum ssl_hs_wait_t do_select_parameters(SSL_HANDSHAKE *hs) {
@@ -1247,6 +1280,8 @@ static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
     if(ssl_has_client_CAs(hs->config)) {
       // Note, this value may be NULL
       ssl->s3->pha_config->names = ssl_get_client_CAs(hs);
+    } else {
+      ssl->s3->pha_config->names = NULL;
     }
 
     // TO-DO: Store the handshake transcript

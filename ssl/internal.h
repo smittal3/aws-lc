@@ -1397,6 +1397,12 @@ UniquePtr<STACK_OF(CRYPTO_BUFFER)> ssl_parse_client_CA_list(SSL *ssl,
 // a pointer to it. Otherwise, returns NULL.
 STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs(const SSL_HANDSHAKE *hs);
 
+// ssl_add_client_CA_list_pha adds the configured CA list to |cbb| in the format
+// used by a TLS CertificateRequest message. It returns true on success and
+// false on error. This is used in the PHA case where the handshake object may
+// not be available.
+bool ssl_add_client_CA_list_pha(SSL *ssl, CBB *cbb);
+
 // ssl_has_client_CAs returns there are configured CAs.
 bool ssl_has_client_CAs(const SSL_CONFIG *cfg);
 
@@ -2440,8 +2446,13 @@ bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
 
 // tls13_get_verify_sigalgs_pha calls |tls12_get_verify_sigalgs| for the given
 // handshake object. It takes the sigalgs returned, creates a deep copy, and
-// returns the copy. These are used for PHA.
+// returns the copy. These are used for PHA .
 Span<const uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs);
+
+// tls13_add_verify_sigalgs_pha adds the signature algorithms acceptable for the
+// peer signature to |out|. It returns true on success and false on error. This
+// function is used for PHA where handshake object may not be available
+bool tls13_add_verify_sigalgs_pha(SSL *ssl, CBB *out);
 
 // Underdocumented functions.
 //

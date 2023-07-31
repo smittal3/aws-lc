@@ -512,6 +512,17 @@ Span<const uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs) {
   return copySiglagsSpan;
 }
 
+bool tls13_add_verify_sigalgs_pha(SSL *ssl, CBB *out) {
+  Span<const uint16_t> sigalgs = ssl->s3->pha_config->verify_sigalgs;
+
+  for (uint16_t sigalg : sigalgs) {
+    if (!CBB_add_u16(out, sigalg)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // tls_extension represents a TLS extension that is handled internally.
 //
 // The parse callbacks receive a |CBS| that contains the contents of the

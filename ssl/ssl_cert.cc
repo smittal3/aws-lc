@@ -743,6 +743,29 @@ STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs(const SSL_HANDSHAKE *hs) {
   return copy;
 }
 
+bool ssl_add_client_CA_list_pha(SSL *ssl, CBB *cbb) {
+  CBB child, name_cbb;
+
+  if (!CBB_add_u16_length_prefixed(cbb, &child)) {
+    return false;
+  }
+
+  const STACK_OF(CRYPTO_BUFFER) *names = ssl->s3->pha_config->names;
+  // This should not be null
+  if (names == nullptr) {
+    return false;
+  }
+
+  for (const CRYPTO_BUFFER *name : names) {
+    if (!CBB_add_u16_length_prefixed(&child, &name_cbb) ||
+        !CBB_add_bytes(&name_cbb, CRYPTO_BUFFER_data(name),
+                       CRYPTO_BUFFER_len(name))) {
+      return false;
+    }
+  }
+  return CBB_flush(cbb);
+}
+
 bool ssl_has_client_CAs(const SSL_CONFIG *cfg) {
   const STACK_OF(CRYPTO_BUFFER) *names = cfg->client_CA.get();
   if (names == nullptr) {
