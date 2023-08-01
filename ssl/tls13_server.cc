@@ -215,7 +215,7 @@ static bool add_new_session_tickets(SSL_HANDSHAKE *hs, bool *out_sent_tickets) {
 
 bool tls13_add_certificate_request(SSL *ssl) {
   ScopedCBB cbb;
-  CBB body, context, extensions, sigalg_contents, sigalgs_cbb, CA, CA_contents;
+  CBB body, context, extensions, sigalg_contents, sigalgs_cbb, CA_contents;
   uint8_t request_context[16];
   RAND_bytes(request_context, sizeof(request_context));
 
@@ -242,8 +242,7 @@ bool tls13_add_certificate_request(SSL *ssl) {
     }
   }
 
-  // TO-DO: Have to check if add_message implicitly flushes the parent buffer
-  // or if we need to do so. It isn't manually flushed in other places.
+  // buffer gets flushed automatically in below call
   if (!ssl_add_message_cbb(ssl, cbb.get())) {
     return false;
   }
@@ -1265,8 +1264,7 @@ static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
 
   // PHA is enabled, store state needed for it
-  if(ssl->s3->pha_enabled && (ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED ||
-                               ssl->s3->pha_ext == SSL_PHA_REQUEST_PENDING )) {
+  if(ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED || ssl->s3->pha_ext == SSL_PHA_REQUEST_PENDING) {
     // Initialize PHA_Config struct
     ssl->s3->pha_config = MakeUnique<PHA_Config>();
     if(ssl->s3->pha_config == nullptr) {
