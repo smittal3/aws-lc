@@ -880,7 +880,7 @@ static enum ssl_hs_wait_t do_send_server_hello(SSL_HANDSHAKE *hs) {
         hs->channel_id_negotiated) {
       hs->cert_request = false;
     }
-   }
+  }
 
   // Send a CertificateRequest, if necessary.
   if (hs->cert_request) {
