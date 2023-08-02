@@ -969,15 +969,17 @@ int SSL_verify_client_post_handshake(SSL *ssl) {
     return 0;
   }
 
-  if (!ssl->s3->pha_enabled) {
+  if (ssl->s3->pha_ext == SSL_PHA_NONE) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
     return 0;
   }
 
-  // State should indicate Extension is received by client. State could be |SSL_PHA_REQUEST_PENDING|
-  // if server requested client auth immediately after the initial handshake but this case is handled in the
-  // TLS 1.3 state machine itself. Otherwise, we have a pending request that hasn't received a response.
-  if(ssl->s3->pha_ext != SSL_PHA_EXT_RECEIVED) {
+  // State should indicate Extension is received by server. State could be
+  // |SSL_PHA_REQUEST_PENDING| if server requested client auth immediately after
+  // the initial handshake but this case is handled in the state machine itself.
+  // Otherwise, state should either be |SSL_PHA_EXT_RECEIVED| or
+  // |SSL_PHA_REQUESTED| in the case of a previous message already being sent
+  if(ssl->s3->pha_ext != SSL_PHA_EXT_RECEIVED && ssl->s3->pha_ext != SSL_PHA_REQUESTED) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
     return 0;
   }
