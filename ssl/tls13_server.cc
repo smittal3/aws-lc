@@ -282,7 +282,7 @@ static enum ssl_ticket_aead_result_t select_session(
   // sends pre_shared_key without psk_key_exchange_modes.
   CBS unused;
   if (!ssl_client_hello_get_extension(client_hello, &unused,
-                                      TLSEXT_TYPE_psk_key_exchange_modes)) {
+                                        TLSEXT_TYPE_psk_key_exchange_modes)) {
     *out_alert = SSL_AD_MISSING_EXTENSION;
     OPENSSL_PUT_ERROR(SSL, SSL_R_MISSING_EXTENSION);
     return ssl_ticket_aead_error;
@@ -824,15 +824,27 @@ static enum ssl_hs_wait_t do_send_server_hello(SSL_HANDSHAKE *hs) {
     return ssl_hs_error;
   }
 
-  if (!ssl->s3->session_reused) {
-    // Determine whether to request a client certificate.
-    hs->cert_request = !!(hs->config->verify_mode & SSL_VERIFY_PEER);
-    // Only request a certificate if Channel ID isn't negotiated.
-    if ((hs->config->verify_mode & SSL_VERIFY_PEER_IF_NO_OBC) &&
-        hs->channel_id_negotiated) {
-      hs->cert_request = false;
+
+    if (!ssl->s3->session_reused) {
+      // Determine whether to request a client certificate.
+      // hs->cert_request is True if only SSL_VERIFY_PEER is set, otherwise false
+      hs->cert_request = (hs->config->verify_mode & SSL_VERIFY_PEER) &&
+                         !(hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE);
+
+      // Client authentication requested but immediately after initial handshake
+      // Then both |SSL_VERIFY_POST_HANDSHAKE| and |SSL_VERIFY_PEER| should be set
+      // and the server should have received the PHA extension from the client
+      if((hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE) &&
+          (hs->config->verify_mode & SSL_VERIFY_PEER) && ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED) {
+        ssl->s3->pha_ext = SSL_PHA_REQUEST_PENDING;
+      }
+
+      // Only request a certificate if Channel ID isn't negotiated.
+      if ((hs->config->verify_mode & SSL_VERIFY_PEER_IF_NO_OBC) &&
+          hs->channel_id_negotiated) {
+        hs->cert_request = false;
+      }
     }
-  }
 
   // Send a CertificateRequest, if necessary.
   if (hs->cert_request) {

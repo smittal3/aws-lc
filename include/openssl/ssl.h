@@ -2628,6 +2628,11 @@ OPENSSL_EXPORT int SSL_set1_groups_list(SSL *ssl, const char *groups);
 // if and only if Channel ID is not negotiated.
 #define SSL_VERIFY_PEER_IF_NO_OBC 0x04
 
+// SSL_VERIFY_POST_HANDSHAKE configures a server to request a client certificate
+// after the initial handshake is complete instead of in the initial handshake. Must
+// be used with |SSL_VERIFY_PEER|, otherwise it will have no effect.
+#define SSL_VERIFY_POST_HANDSHAKE 0x08
+
 // SSL_CTX_set_verify configures certificate verification behavior. |mode| is
 // one of the |SSL_VERIFY_*| values defined above. |callback|, if not NULL, is
 // used to customize certificate verification, but is deprecated. See
@@ -4500,6 +4505,34 @@ OPENSSL_EXPORT int SSL_CTX_set_max_send_fragment(SSL_CTX *ctx,
 // error.
 OPENSSL_EXPORT int SSL_set_max_send_fragment(SSL *ssl,
                                              size_t max_send_fragment);
+
+
+
+// SSL_CTX_set_post_handshake_auth and SSL_set_post_handshake_auth enable the
+// Post-Handshake Authentication extension (pha_ext) to be added to the
+// ClientHello such that post-handshake authentication can be requested by the
+// server. If val is 0 then the extension is not sent, if it is 1 then it is.
+// By default, the extension is not sent. On the client side, a certificate
+// callback will need to be set via |SSL_CTX_set_client_cert_cb| if no
+// certificate is provided at initialization.
+OPENSSL_EXPORT void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val);
+OPENSSL_EXPORT void SSL_set_post_handshake_auth(SSL *ssl, int val);
+
+// SSL_verify_client_post_handshake lets the server send a CertificateRequest
+// message on the given ssl connection.
+// The |SSL_VERIFY_PEER| flag must be set; the |SSL_VERIFY_POST_HANDSHAKE|
+// flag is optional. These flags can be set via |SSL_CTX_set_verify| for
+// |SSL_CTX| or |SSL_set_verify| for |SSL|.
+OPENSSL_EXPORT int SSL_verify_client_post_handshake(SSL *ssl);
+
+
+// SSL_get_verify_result_pha returns the status of post handshake
+// authentication. It returns |X509_V_OK| if the peer certificate is provided
+// and valid, and NULL otherwise. The function calls |SSL_get_peer_certificate|
+// to ensure a peer certificate has been provided and |SSL_get_verify_result|
+// to ensure the provided certificate is valid
+OPENSSL_EXPORT long SSL_get_verify_result_pha(const SSL *ssl);
+
 
 // ssl_early_callback_ctx (aka |SSL_CLIENT_HELLO|) is passed to certain
 // callbacks that are called very early on during the server handshake. At this

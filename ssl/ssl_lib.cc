@@ -541,7 +541,8 @@ ssl_ctx_st::ssl_ctx_st(const SSL_METHOD *ssl_method)
       handoff(false),
       enable_early_data(false),
       aes_hw_override(false),
-      aes_hw_override_value(false) {
+      aes_hw_override_value(false),
+      pha_enabled(false) {
   CRYPTO_MUTEX_init(&lock);
   CRYPTO_new_ex_data(&ex_data);
 }
@@ -695,6 +696,8 @@ SSL *SSL_new(SSL_CTX *ctx) {
       !ssl->ctx->x509_method->ssl_new(ssl->s3->hs.get())) {
     return nullptr;
   }
+
+  ssl->s3->pha_enabled = ctx->pha_enabled;
 
   return ssl.release();
 }
@@ -928,6 +931,22 @@ static int ssl_do_post_handshake(SSL *ssl, const SSLMessage &msg) {
 
   return 1;
 }
+
+void SSL_CTX_set_post_handshake_auth(SSL_CTX *ctx, int val) {
+  ctx->pha_enabled = val;
+}
+
+void SSL_set_post_handshake_auth(SSL *ssl, int val) {
+  ssl->s3->pha_enabled = val;
+}
+
+// Initiates CertificateRequest to authenticate client post handshake
+// TO-DO
+int SSL_verify_client_post_handshake(SSL *ssl) {
+  return 0;
+}
+
+
 
 int SSL_process_quic_post_handshake(SSL *ssl) {
   ssl_reset_error_state(ssl);

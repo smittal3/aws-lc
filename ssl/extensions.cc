@@ -3089,6 +3089,46 @@ bool ssl_negotiate_alps(SSL_HANDSHAKE *hs, uint8_t *out_alert,
   return true;
 }
 
+// Adds pha_ext to the client hello
+static bool ext_pha_add_clienthello(const SSL_HANDSHAKE *hs, CBB *out,
+                                    CBB *out_compressible, ssl_client_hello_type_t type)  {
+  const SSL *const ssl = hs->ssl;
+
+  // post_handshake_auth is not supported in TLS versions < 1.3. Also checking
+  // if extension has been enabled by client.
+  if(hs->max_version < TLS1_3_VERSION || ssl->s3->pha_enabled != 1) {
+    return true;
+  }
+
+  if (!CBB_add_u16(out_compressible, TLSEXT_TYPE_post_handshake_auth) ||
+      !CBB_add_u16(out_compressible, 0 /* empty "extension_data" field */) ||
+      !CBB_flush(out_compressible)) {
+    return false;
+  }
+
+  ssl->s3->pha_ext = SSL_PHA_EXT_SENT;
+  return true;
+}
+
+// Parses pha_ext from client hello
+static bool ext_pha_parse_clienthello(SSL_HANDSHAKE *hs,
+                                      uint8_t *out_alert,
+                                      CBS *contents)  {
+  if(contents == nullptr || hs->max_version < TLS1_3_VERSION) {
+    return true;
+  }
+
+  // Should be empty
+  if(CBS_len(contents) != 0) {
+    return false;
+  }
+
+  hs->ssl->s3->pha_ext = SSL_PHA_EXT_RECEIVED;
+
+  return true;
+}
+
+
 // kExtensions contains all the supported extensions.
 static const struct tls_extension kExtensions[] = {
   {
@@ -3262,6 +3302,13 @@ static const struct tls_extension kExtensions[] = {
     ignore_parse_clienthello,
     ext_alps_add_serverhello,
   },
+  {
+    TLSEXT_TYPE_post_handshake_auth,
+    ext_pha_add_clienthello,
+    forbid_parse_serverhello,
+    ext_pha_parse_clienthello,
+    dont_add_serverhello,
+    },
 };
 
 #define kNumExtensions (sizeof(kExtensions) / sizeof(struct tls_extension))
