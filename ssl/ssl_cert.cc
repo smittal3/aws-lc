@@ -737,8 +737,10 @@ STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs_pha(const SSL_HANDSHAKE *hs) {
   if (names == NULL) {
     names = hs->ssl->ctx->client_CA.get();
   }
+  // Shouldn't be null since ssl_has_client_CAs called before to check
   if (names == NULL) {
-    return names;
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return nullptr;
   }
 
   // Make a deep copy otherwise
