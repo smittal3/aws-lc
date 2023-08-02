@@ -864,14 +864,14 @@ static enum ssl_hs_wait_t do_send_server_hello(SSL_HANDSHAKE *hs) {
   if (!ssl->s3->session_reused) {
     // Determine whether to request a client certificate.
     // hs->cert_request is True if only SSL_VERIFY_PEER is set, otherwise false
-    hs->cert_request = !!(hs->config->verify_mode & SSL_VERIFY_PEER) &&
+    hs->cert_request = (hs->config->verify_mode & SSL_VERIFY_PEER) &&
                        !(hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE);
 
     // Client authentication requested but immediately after initial handshake
     // Then both |SSL_VERIFY_POST_HANDSHAKE| and |SSL_VERIFY_PEER| should be set
     // and the server should have received the PHA extension from the client
-    if(!!(hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE) &&
-        !!(hs->config->verify_mode & SSL_VERIFY_PEER) && ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED) {
+    if((hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE) &&
+        (hs->config->verify_mode & SSL_VERIFY_PEER) && ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED) {
       ssl->s3->pha_ext = SSL_PHA_REQUEST_PENDING;
     }
 
@@ -880,7 +880,7 @@ static enum ssl_hs_wait_t do_send_server_hello(SSL_HANDSHAKE *hs) {
         hs->channel_id_negotiated) {
       hs->cert_request = false;
     }
-  }
+   }
 
   // Send a CertificateRequest, if necessary.
   if (hs->cert_request) {

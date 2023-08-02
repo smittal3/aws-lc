@@ -9294,6 +9294,7 @@ TEST(SSLTest, PHAMacroBehaviorEnabled) {
 
   // First server read and flight
   SSL_do_handshake(server.get());
+
   // After server processes client hello, since |SSL_VERIFY_POST_HANDSHAKE|
   // is set, server should have cert_request be false and pha_ext should
   // indicate request is pending instead of |SSL_PHA_EXT_RECEIVED|
@@ -9351,6 +9352,7 @@ TEST(SSLTest, PHAMacroBehaviorDisabled) {
 
   // First server read and flight
   SSL_do_handshake(server.get());
+
   // After server processes client hello, since SSL_VERIFY_POST_HANDSHAKE is
   // NOT set, server should have cert_request be true and pha_ext should
   // indicate SSL_PHA_EXT_RECEIVED
