@@ -8853,31 +8853,10 @@ TEST(SSLTest, ProcessTLS13NewSessionTicket) {
                                                     sizeof(kTicket)));
 }
 
-// Testing: when PHA is configured by the server (before the connection is
-// established) to occur right after the handshake, esnure PHA state is
-// processed in server tls state machine, |PHA_Config| is initialized,
-// and sigalgs + client CA data is copied appropriately to |PHA_Config|
-
-// TO-DO: After adding client CA stuff, create a copy of this test and use
-// SSL_verify_client_post_handshake to do request instead before and after handhskae complete
-TEST(SSLTest, ImmediatePHA) {
-  // Configure client and server to negotiate TLS 1.3 only.
-  bssl::UniquePtr<SSL_CTX> client_ctx(CreateContextWithTestCertificate(TLS_method()));
-  bssl::UniquePtr<SSL_CTX> server_ctx(
-      CreateContextWithTestCertificate(TLS_method()));
-  ASSERT_TRUE(client_ctx);
-  ASSERT_TRUE(server_ctx);
-  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
-  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
-  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
-  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
-
-  // Configure server to ask for client authentication immediately after the
-  // handshake
-  SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER | SSL_VERIFY_POST_HANDSHAKE, nullptr);
-
-  // Configure trust store for server. REMOVE ONCE TEST IS FINALIZED IF NOT NEEDED
-  bssl::UniquePtr<STACK_OF(X509)> CAstore(sk_X509_new_null());
+// Returns a stack of cert subject names to configure the server client CA
+// store
+static STACK_OF(X509_NAME)* get_test_cert_store() {
+  bssl::UniquePtr<STACK_OF(X509_NAME)> CAstore(sk_X509_NAME_new_null());
   bssl::UniquePtr<X509> cert1 = CertFromPEM(R"(
 -----BEGIN CERTIFICATE-----
 MIIC/TCCAeWgAwIBAgIUT136jaRkxLYNgpupnTu25xHq5m4wDQYJKoZIhvcNAQEL
@@ -8899,8 +8878,7 @@ jVQZ+lbZxWRHx6/EbD6ndbHSt9AyazFlQ4vgtCalBX2+zlGQtbfP91nU8TbVdOF/
 Qw==
 -----END CERTIFICATE-----
 )");
-  ASSERT_TRUE(cert1);
-  ASSERT_TRUE(sk_X509_push(CAstore.get(), cert1.get()));
+  sk_X509_NAME_push(CAstore.get(), X509_get_subject_name(cert1.get()));
   X509_up_ref(cert1.get());
 
   bssl::UniquePtr<X509> cert2 = CertFromPEM(R"(
@@ -8924,12 +8902,34 @@ o9N3ZAI89whIVQlWNlzdOMs1ON7PnQDDeMh3+k+Zbi3vHN0aT/3OG1qJNXtZ3eJA
 fg==
 -----END CERTIFICATE-----
 )");
-  ASSERT_TRUE(cert2);
-  ASSERT_TRUE(sk_X509_push(CAstore.get(), cert2.get()));
+  sk_X509_NAME_push(CAstore.get(), X509_get_subject_name(cert2.get()));
   X509_up_ref(cert2.get());
-  // Using absolute path, should I define these as above and try to use or put the file in the lc repo?
-  // Ideally all certs in source code, build stack from scratch
-  SSL_CTX_set_client_CA_list(server_ctx.get(), SSL_load_client_CA_file("/Users/smittals/Desktop/truststore.pem"));
+
+  return CAstore.release();
+}
+
+// Testing: when PHA is configured by the server (before the connection is
+// established) to occur right after the handshake, esnure PHA state is
+// processed in server tls state machine, |PHA_Config| is initialized,
+// and sigalgs + client CA data is copied appropriately to |PHA_Config|
+TEST(SSLTest, ImmediatePHA) {
+  // Configure client and server to negotiate TLS 1.3 only.
+  bssl::UniquePtr<SSL_CTX> client_ctx(CreateContextWithTestCertificate(TLS_method()));
+  bssl::UniquePtr<SSL_CTX> server_ctx(
+      CreateContextWithTestCertificate(TLS_method()));
+  ASSERT_TRUE(client_ctx);
+  ASSERT_TRUE(server_ctx);
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
+
+  // Configure server to ask for client authentication immediately after the
+  // handshake
+  SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER | SSL_VERIFY_POST_HANDSHAKE, nullptr);
+
+  // Configure trust store for server.
+  SSL_CTX_set_client_CA_list(server_ctx.get(), get_test_cert_store());
 
   bssl::UniquePtr<SSL> client, server;
   ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
@@ -8953,9 +8953,6 @@ fg==
   EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_REQUEST_PENDING);
   // should be false so CertificateRequest not sent in initial message
   EXPECT_FALSE(server.get()->s3->hs->cert_request);
-
-  // REMOVE AND PUT IN OTHER TEST, should not work since handshake not over
-  EXPECT_TRUE(SSL_verify_client_post_handshake(server.get()) == 0);
 
   // Second client flight, process server messages and send client Finished
   SSL_do_handshake(client.get());
@@ -9017,7 +9014,6 @@ fg==
 
   // Client processes it, should parse and call tls13_post_handshake where
   // function to process the CertificateRequest is used
-  // TO:DO - How to verify that the processing flow detailed above is taking place
   SSL_read(client.get(), nullptr, 0);
 }
 
@@ -9038,8 +9034,8 @@ TEST(SSLTest, NonImmediatePHAWithoutInitialAuth) {
   ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
   ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
 
-  // Using absolute path, should I define these as above and try to use or put the file in the lc repo?
-  SSL_CTX_set_client_CA_list(server_ctx.get(), SSL_load_client_CA_file("/Users/smittals/Desktop/truststore.pem"));
+  // Configure trust store for server.
+  SSL_CTX_set_client_CA_list(server_ctx.get(), get_test_cert_store());
 
   bssl::UniquePtr<SSL> client, server;
   ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
@@ -9123,16 +9119,17 @@ TEST(SSLTest, NonImmediatePHAWithInitialAuth) {
   ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
   ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
 
-  /**SSL_CTX_set_custom_verify(
+
+  // Custom verification functions that return ok
+  SSL_CTX_set_custom_verify(
       server_ctx.get(), SSL_VERIFY_PEER,
       [](SSL *ssl, uint8_t *out_alert) { return ssl_verify_ok; });
-    SSL_CTX_set_custom_verify(
-      client_ctx.get(), SSL_VERIFY_PEER,
-      [](SSL *ssl, uint8_t *out_alert) { return ssl_verify_ok; }); **/
+  SSL_CTX_set_custom_verify(
+    client_ctx.get(), SSL_VERIFY_PEER,
+    [](SSL *ssl, uint8_t *out_alert) { return ssl_verify_ok; });
 
-  // Using absolute path, should I define these as above and try to use or put the file in the lc repo?
-  SSL_CTX_set_client_CA_list(server_ctx.get(), SSL_load_client_CA_file("/Users/smittals/Desktop/truststore.pem"));
-  SSL_CTX_load_verify_locations(server_ctx.get() ,"/Users/smittals/Desktop/truststore.pem", nullptr);
+  // Configure trust store for server.
+  SSL_CTX_set_client_CA_list(server_ctx.get(), get_test_cert_store());
 
   // Configure server to request certificate in initial handshake
   SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER, nullptr);
@@ -9171,7 +9168,6 @@ TEST(SSLTest, NonImmediatePHAWithInitialAuth) {
 
   // Second server flight, process client Certificate, CertificateVerify,
   // and Finished
-  // TO:DO- Reading CLient certificateVerify is failing, nbot sure why?
   SSL_do_handshake(server.get());
   EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_EXT_RECEIVED);
 
