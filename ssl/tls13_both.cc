@@ -618,6 +618,9 @@ bool tls13_add_finished(SSL_HANDSHAKE *hs) {
     return false;
   }
 
+  // TO-DO: If PHA enabled, create copy of message and hash into transcript. Then also need to add CertificateRequest to the hash
+
+
   return true;
 }
 
@@ -668,6 +671,16 @@ static bool tls13_receive_key_update(SSL *ssl, const SSLMessage &msg) {
   return true;
 }
 
+bool tls13_process_certificate_request(SSL *ssl, const SSLMessage &msg) {
+  // Did not enable and send pha_ext, should not have received this message
+  if(ssl->s3->pha_enabled != 1 || ssl->s3->pha_ext != SSL_PHA_EXT_SENT) {
+    OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
+    return false;
+  }
+
+  return true;
+}
+
 bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg) {
   if (msg.type == SSL3_MT_KEY_UPDATE) {
     if (ssl->quic_method != nullptr) {
@@ -681,6 +694,10 @@ bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg) {
 
   if (msg.type == SSL3_MT_NEW_SESSION_TICKET && !ssl->server) {
     return tls13_process_new_session_ticket(ssl, msg);
+  }
+
+  if (msg.type == SSL3_MT_CERTIFICATE_REQUEST && !ssl->server) {
+    return tls13_process_certificate_request(ssl, msg);
   }
 
   ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);

@@ -2204,6 +2204,11 @@ bool tls13_add_key_update(SSL *ssl, int update_requested);
 // true on success and false on failure.
 bool tls13_add_certificate_request(SSL *ssl);
 
+// tls13_process_certificate_request processes the CertificateRequest in |msg|
+// and returns true if processing is successful and response is sent, and false
+// otherwise
+bool tls13_process_certificate_request(SSL *ssl, const SSLMessage &msg);
+
 // tls13_post_handshake processes a post-handshake message. It returns true on
 // success and false on failure.
 bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg);
