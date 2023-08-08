@@ -622,6 +622,7 @@ bool tls13_add_finished(SSL_HANDSHAKE *hs) {
   // Then also need to add CertificateRequest to the hash
   if (ssl->s3->pha_config != nullptr) {
 
+
   }
 
   return true;
