@@ -891,6 +891,26 @@ static enum ssl_hs_wait_t do_send_client_certificate_verify(SSL_HANDSHAKE *hs) {
 }
 
 static enum ssl_hs_wait_t do_process_pha(SSL_HANDSHAKE *hs) {
+  SSL *const ssl = hs->ssl;
+
+  // PHA is enabled and extension sent, store state needed for it
+  if(ssl->s3->pha_ext == SSL_PHA_EXT_SENT && ssl->s3->pha_enabled == 1) {
+
+    // Initialize PHA_Config struct
+    ssl->s3->pha_config = MakeUnique<PHA_Config>();
+    if (ssl->s3->pha_config == nullptr) {
+      return ssl_hs_error;
+    }
+
+    // Copy all the required state
+    if(hs->config->cert != nullptr) {
+      ssl->s3->pha_config->client_cert = ssl_cert_dup(hs->config->cert.get());
+    }
+
+    ssl->s3->pha_config->scts_requested = hs->scts_requested;
+    ssl->s3->pha_config->ocsp_stapling_requested = hs->ocsp_stapling_requested;
+  }
+
   hs->tls13_state = state_complete_second_flight;
   return ssl_hs_ok;
 }

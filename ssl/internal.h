@@ -2780,6 +2780,18 @@ struct PHA_Config {
   // Holds original transcript hash for CertificateVerify from client response
   uint8_t handshake_transcript_hash[EVP_MAX_MD_SIZE];
   size_t handshake_transcript_hash_len;
+
+  // Holds the client certificate
+  UniquePtr<CERT> client_cert;
+
+  // client_pubkey is the public key the client is authenticating as.
+  UniquePtr<EVP_PKEY> client_pubkey;
+
+  // scts_requested is true if the SCT extension is in the ClientHello.
+  bool scts_requested : 1;
+
+  // ocsp_stapling_requested is true if a client requested OCSP stapling.
+  bool ocsp_stapling_requested : 1;
 };
 
 #define SSL3_SEND_ALERT_SIZE 2
