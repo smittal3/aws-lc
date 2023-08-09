@@ -835,7 +835,7 @@ static enum ssl_hs_wait_t do_send_client_certificate(SSL_HANDSHAKE *hs) {
 
   // The peer didn't request a certificate, process pha if applicable
   if (!hs->cert_request) {
-    hs->tls13_state = state_process_pha;
+    hs->tls13_state = state_complete_second_flight;
     return ssl_hs_ok;
   }
 
@@ -869,13 +869,13 @@ static enum ssl_hs_wait_t do_send_client_certificate(SSL_HANDSHAKE *hs) {
 static enum ssl_hs_wait_t do_send_client_certificate_verify(SSL_HANDSHAKE *hs) {
   // Don't send CertificateVerify if there is no certificate.
   if (!ssl_has_certificate(hs)) {
-    hs->tls13_state = state_process_pha;
+    hs->tls13_state = state_complete_second_flight;
     return ssl_hs_ok;
   }
 
   switch (tls13_add_certificate_verify(hs)) {
     case ssl_private_key_success:
-      hs->tls13_state = state_process_pha;
+      hs->tls13_state = state_complete_second_flight;
       return ssl_hs_ok;
 
     case ssl_private_key_retry:
@@ -909,10 +909,16 @@ static enum ssl_hs_wait_t do_process_pha(SSL_HANDSHAKE *hs) {
 
     ssl->s3->pha_config->scts_requested = hs->scts_requested;
     ssl->s3->pha_config->ocsp_stapling_requested = hs->ocsp_stapling_requested;
+
+    // If PHA enabled, transfer handshake transcript to PHAConfig struct
+    if (ssl->s3->pha_config != nullptr && !ssl->server) {
+      ssl->s3->pha_config->transcript = std::move(hs->transcript);
+    }
   }
 
-  hs->tls13_state = state_complete_second_flight;
-  return ssl_hs_ok;
+  hs->tls13_state = state_done;
+  // flushing pending flight including client Finished
+  return ssl_hs_flush;
 }
 
 static enum ssl_hs_wait_t do_complete_second_flight(SSL_HANDSHAKE *hs) {
@@ -946,7 +952,7 @@ static enum ssl_hs_wait_t do_complete_second_flight(SSL_HANDSHAKE *hs) {
     return ssl_hs_error;
   }
 
-  hs->tls13_state = state_done;
+  hs->tls13_state = state_process_pha;
   return ssl_hs_flush;
 }
 
@@ -997,11 +1003,11 @@ enum ssl_hs_wait_t tls13_client_handshake(SSL_HANDSHAKE *hs) {
       case state_send_client_certificate_verify:
         ret = do_send_client_certificate_verify(hs);
         break;
-      case state_process_pha:
-        ret = do_process_pha(hs);
-        break;
       case state_complete_second_flight:
         ret = do_complete_second_flight(hs);
+        break;
+      case state_process_pha:
+        ret = do_process_pha(hs);
         break;
       case state_done:
         ret = ssl_hs_ok;
@@ -1050,10 +1056,10 @@ const char *tls13_client_handshake_state(SSL_HANDSHAKE *hs) {
       return "TLS 1.3 client send_client_certificate";
     case state_send_client_certificate_verify:
       return "TLS 1.3 client send_client_certificate_verify";
-    case state_process_pha:
-      return "TLS 1.3 state_process_pha";
     case state_complete_second_flight:
       return "TLS 1.3 client complete_second_flight";
+    case state_process_pha:
+      return "TLS 1.3 state_process_pha";
     case state_done:
       return "TLS 1.3 client done";
   }

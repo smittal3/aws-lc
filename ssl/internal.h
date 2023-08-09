@@ -2780,6 +2780,7 @@ struct PHA_Config {
   // Holds original transcript hash for CertificateVerify from client response
   uint8_t handshake_transcript_hash[EVP_MAX_MD_SIZE];
   size_t handshake_transcript_hash_len;
+  SSLTranscript transcript;
 
   // Holds the client certificate
   UniquePtr<CERT> client_cert;
