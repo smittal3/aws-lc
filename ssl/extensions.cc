@@ -501,15 +501,13 @@ bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
   return false;
 }
 
-Span<const uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs) {
+Array<uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs) {
   Span<const uint16_t> sigalgs = tls12_get_verify_sigalgs(hs);
-  // allocate space
-  uint16_t * copySigalgs = (uint16_t *) OPENSSL_malloc(sigalgs.size() * sizeof(uint16_t));
-  // copy over the data
-  OPENSSL_memcpy(copySigalgs, sigalgs.data(), sigalgs.size() * sizeof(uint16_t));
-  // create a span from the copied data
-  Span<const uint16_t> copySiglagsSpan(copySigalgs, sigalgs.size());
-  return copySiglagsSpan;
+
+  // Create copy into array
+  Array<uint16_t> copySigalgs;
+  copySigalgs.CopyFrom(sigalgs);
+  return copySigalgs;
 }
 
 bool tls13_add_verify_sigalgs_pha(SSL *ssl, CBB *out) {

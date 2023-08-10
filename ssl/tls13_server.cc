@@ -1279,8 +1279,6 @@ static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
       // Note, this value may be NULL
       ssl->s3->pha_config->names = ssl_get_client_CAs_pha(hs);
     }
-
-    // TO-DO: Store the handshake transcript
   }
 
   // Cert request wasn't sent in initial handshake but client auth is requested,
