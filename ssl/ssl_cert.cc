@@ -415,6 +415,19 @@ bool ssl_has_certificate(const SSL_HANDSHAKE *hs) {
          ssl_has_private_key(hs);
 }
 
+bool ssl_has_certificate_pha(const SSL *ssl) {
+  if (!ssl_cert_check_cert_private_keys_usage(ssl->s3->pha_config->client_cert.get())) {
+    return false;
+  }
+
+  CERT_PKEY &cert_pkey =
+      ssl->s3->pha_config->client_cert
+          ->cert_private_keys[ssl->s3->pha_config->client_cert->cert_private_key_idx];
+  return cert_pkey.chain != nullptr &&
+         sk_CRYPTO_BUFFER_value(cert_pkey.chain.get(), 0) != nullptr &&
+         (cert_pkey.privatekey != nullptr || ssl->s3->pha_config->client_cert->key_method);
+}
+
 bool ssl_parse_cert_chain(uint8_t *out_alert,
                           UniquePtr<STACK_OF(CRYPTO_BUFFER)> *out_chain,
                           UniquePtr<EVP_PKEY> *out_pubkey,
@@ -859,6 +872,25 @@ bool ssl_on_certificate_selected(SSL_HANDSHAKE *hs) {
     hs->local_pubkey = ssl_cert_parse_pubkey(&leaf);
   }
   return hs->local_pubkey != NULL;
+}
+
+bool ssl_on_certificate_selected_pha(SSL *ssl) {
+  if (!ssl_has_certificate_pha(ssl)) {
+    // Nothing to do.
+    return true;
+  }
+
+  CERT *cert = ssl->s3->pha_config->client_cert.get();
+
+  // |cert_private_keys| already checked above in |ssl_has_certificate|.
+  STACK_OF(CRYPTO_BUFFER) *chain =
+      cert->cert_private_keys[cert->cert_private_key_idx].chain.get();
+  CBS leaf;
+  CRYPTO_BUFFER_init_CBS(sk_CRYPTO_BUFFER_value(chain, 0), &leaf);
+
+  ssl->s3->pha_config->client_pubkey = ssl_cert_parse_pubkey(&leaf);
+
+  return ssl->s3->pha_config->client_pubkey != NULL;
 }
 
 

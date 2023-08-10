@@ -1141,13 +1141,37 @@ bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
       return false;
     }
 
+    // Construct Certificate, delegated credential and certificate compression
+    // extensions are not considered here. Can introduce later if required.
+
+    if (ssl->s3->pha_config->client_cert->cert_cb != nullptr) {
+      // Call cert_cb to update the certificate.
+      int rv = ssl->s3->pha_config->client_cert->cert_cb(ssl, ssl->s3->pha_config->client_cert->cert_cb_arg);
+      if (rv <= 0) {
+        ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+        OPENSSL_PUT_ERROR(SSL, SSL_R_CERT_CB_ERROR);
+        return false;
+      }
+    }
+
+    if(!ssl_on_certificate_selected_pha(ssl)) {
+      return false;
+    }
+
+
+    // Construct CertificateVerify
+
+    // Add CertificateRequest to transcript for CertificateVerify
+    ssl->s3->pha_config->transcript.Update(msg.raw);
 
   } else {
+    // Construct empty Certificate Message
 
   }
 
-  // Add CertificateRequest to transcript for CertificateVerify
-  ssl->s3->pha_config->transcript.Update(msg.raw);
+  // Construct Finished, same for both cases
+
+  // Flush to Server
 
   return true;
 }

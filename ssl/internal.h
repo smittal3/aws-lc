@@ -1347,6 +1347,10 @@ int ssl_write_buffer_flush(SSL *ssl);
 // configured.
 bool ssl_has_certificate(const SSL_HANDSHAKE *hs);
 
+// ssl_has_certificate_pha returns whether a certificate and private key are
+// configured for the pha case where the handshake object is not available.
+bool ssl_has_certificate_pha(const SSL *ssl);
+
 // ssl_parse_cert_chain parses a certificate list from |cbs| in the format used
 // by a TLS Certificate message. On success, it advances |cbs| and returns
 // true. Otherwise, it returns false and sets |*out_alert| to an alert to send
@@ -1422,6 +1426,12 @@ bool ssl_check_leaf_certificate(SSL_HANDSHAKE *hs, EVP_PKEY *pkey,
 // true on success and false on error.
 bool ssl_on_certificate_selected(SSL_HANDSHAKE *hs);
 
+
+// ssl_on_certificate_selected_pha is called once the certificate has been
+// selected. It finalizes the certificate and initializes
+// |ssl->s3->pha_config->client_pubkey|. It returns true on success and
+// false on error.
+bool ssl_on_certificate_selected_pha(SSL *ssl);
 
 // TLS 1.3 key derivation.
 
