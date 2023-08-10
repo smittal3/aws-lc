@@ -1108,25 +1108,17 @@ static bool tls13_parse_certificate_request_pha(SSL *ssl, const SSLMessage &msg)
       !tls13_parse_peer_sigalgs_pha(ssl, &supported_signature_algorithms)) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
     OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
-    return ssl_hs_error;
+    return false;
   }
 
   if (ca.present) {
-    ssl->s3->pha_config->names = ssl_parse_client_CA_list(ssl, &alert, &ca.data).get();
+    ssl->s3->pha_config->names =
+        ssl_parse_client_CA_list(ssl, &alert, &ca.data).get();
     if (!ssl->s3->pha_config->names) {
       ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
-      return ssl_hs_error;
+      return false;
     }
   }
-  // MAY NOT NEED THIS PART OF CODE, IS IT NECESSARY TO RESET THE VALUE OF NAMES
-  else {
-    ssl->s3->pha_config->names = sk_CRYPTO_BUFFER_new_null();
-    if (!ssl->s3->pha_config->names) {
-      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
-      return ssl_hs_error;
-    }
-  }
-
   return true;
 }
 
