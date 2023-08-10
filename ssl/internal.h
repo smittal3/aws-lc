@@ -2207,7 +2207,7 @@ bool tls13_add_certificate_request(SSL *ssl);
 // tls13_process_certificate_request processes the CertificateRequest in |msg|
 // and returns true if processing is successful and response is sent, and false
 // otherwise
-bool tls13_process_certificate_request(SSL *ssl, const SSLMessage &msg);
+bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg);
 
 // tls13_post_handshake processes a post-handshake message. It returns true on
 // success and false on failure.
@@ -2419,6 +2419,11 @@ uint16_t ssl_get_grease_value(const SSL_HANDSHAKE *hs,
 // algorithms and saves them on |hs|. It returns true on success and false on
 // error.
 bool tls1_parse_peer_sigalgs(SSL_HANDSHAKE *hs, const CBS *sigalgs);
+
+// tls13_parse_peer_sigalgs_pha parses |sigalgs| as the list of peer signature
+// algorithms and saves them on |ssl|. This is specifically for the pha case
+// where we don't have the handshake object available.
+bool tls13_parse_peer_sigalgs_pha(SSL *ssl, const CBS *in_sigalgs);
 
 // tls1_get_legacy_signature_algorithm sets |*out| to the signature algorithm
 // that should be used with |pkey| in TLS 1.1 and earlier. It returns true on

@@ -668,16 +668,6 @@ static bool tls13_receive_key_update(SSL *ssl, const SSLMessage &msg) {
   return true;
 }
 
-bool tls13_process_certificate_request(SSL *ssl, const SSLMessage &msg) {
-  // Did not enable and send pha_ext, should not have received this message
-  if(ssl->s3->pha_enabled != 1 || ssl->s3->pha_ext != SSL_PHA_EXT_SENT) {
-    OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
-    return false;
-  }
-
-  return true;
-}
-
 bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg) {
   if (msg.type == SSL3_MT_KEY_UPDATE) {
     if (ssl->quic_method != nullptr) {
@@ -694,7 +684,7 @@ bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg) {
   }
 
   if (msg.type == SSL3_MT_CERTIFICATE_REQUEST && !ssl->server) {
-    return tls13_process_certificate_request(ssl, msg);
+    return tls13_process_certificate_request_pha(ssl, msg);
   }
 
   ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);

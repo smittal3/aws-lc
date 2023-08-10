@@ -1090,6 +1090,75 @@ bool tls13_process_new_session_ticket(SSL *ssl, const SSLMessage &msg) {
 
   return true;
 }
+static bool tls13_parse_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
+  SSLExtension sigalgs(TLSEXT_TYPE_signature_algorithms),
+      ca(TLSEXT_TYPE_certificate_authorities);
+  CBS body = msg.body, context, extensions, supported_signature_algorithms;
+  uint8_t alert = SSL_AD_DECODE_ERROR;
+  if (!CBS_get_u16_length_prefixed(&body, &context) ||
+      // The request context should not be empty.
+      CBS_len(&context) == 0 ||
+      !CBS_get_u16_length_prefixed(&body, &extensions) ||  //
+      CBS_len(&body) != 0 ||
+      !ssl_parse_extensions(&extensions, &alert, {&sigalgs, &ca},
+                            /*ignore_unknown=*/true) ||
+      !sigalgs.present ||
+      !CBS_get_u16_length_prefixed(&sigalgs.data,
+                                   &supported_signature_algorithms) ||
+      !tls13_parse_peer_sigalgs_pha(ssl, &supported_signature_algorithms)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
+    OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
+    return ssl_hs_error;
+  }
+
+  if (ca.present) {
+    ssl->s3->pha_config->names = ssl_parse_client_CA_list(ssl, &alert, &ca.data).get();
+    if (!ssl->s3->pha_config->names) {
+      ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
+      return ssl_hs_error;
+    }
+  }
+  // MAY NOT NEED THIS PART OF CODE, IS IT NECESSARY TO RESET THE VALUE OF NAMES
+  else {
+    ssl->s3->pha_config->names = sk_CRYPTO_BUFFER_new_null();
+    if (!ssl->s3->pha_config->names) {
+      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+      return ssl_hs_error;
+    }
+  }
+
+  return true;
+}
+
+bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
+  // Did not enable and send pha_ext, should not have received this message
+  // fatal error
+  if(ssl->s3->pha_enabled != 1 || ssl->s3->pha_ext != SSL_PHA_EXT_SENT) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
+    OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
+    return false;
+  }
+  PHA_Config *data = ssl->s3->pha_config.get();
+
+  // If all required state is available, respond with Certificate,
+  // CertificateVerify, and Finished. Otherwise, respond with empty
+  // Certificate message, and Finished
+  if(data != nullptr && data->client_cert.get() != nullptr && data->client_pubkey != nullptr) {
+    // Process CertificateRequest first
+    if(!tls13_parse_certificate_request_pha(ssl, msg)) {
+      return false;
+    }
+
+
+  } else {
+
+  }
+
+  // Add CertificateRequest to transcript for CertificateVerify
+  ssl->s3->pha_config->transcript.Update(msg.raw);
+
+  return true;
+}
 
 UniquePtr<SSL_SESSION> tls13_create_session_with_ticket(SSL *ssl, CBS *body) {
   UniquePtr<SSL_SESSION> session = SSL_SESSION_dup(
