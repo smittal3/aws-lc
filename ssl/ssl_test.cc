@@ -8959,7 +8959,7 @@ TEST(SSLTest, ImmediatePHA) {
   EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_EXT_SENT);
 
   // Storing sigalgs since handshake object is destroyed in next server processing
-  Span<const uint16_t> verify_sigalgs = tls13_get_verify_sigalgs_pha(server.get()->s3->hs.get());
+  Array<uint16_t> verify_sigalgs = tls13_get_verify_sigalgs_pha(server.get()->s3->hs.get());
   // Storing clientCA list before copy
   const STACK_OF(CRYPTO_BUFFER) *names = ssl_get_client_CAs_pha(server.get()->s3->hs.get());
 
@@ -8971,7 +8971,7 @@ TEST(SSLTest, ImmediatePHA) {
   // Check initialization of PHA_config struct
   EXPECT_TRUE(server.get()->s3->pha_config != nullptr);
   // Get deep copy of verify_sigalgs made for PHA
-  Span<const uint16_t> copy_sigalgs = server.get()->s3->pha_config->verify_sigalgs;
+  Array<uint16_t>& copy_sigalgs = server.get()->s3->pha_config->verify_sigalgs;
   const STACK_OF(CRYPTO_BUFFER) *names_copy = server.get()->s3->pha_config->names;
 
   // Verify copying of sigalgs

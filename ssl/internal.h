@@ -2457,7 +2457,7 @@ bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
 // tls13_get_verify_sigalgs_pha calls |tls12_get_verify_sigalgs| for the given
 // handshake object. It takes the sigalgs returned, creates a deep copy, and
 // returns the copy. These are used for PHA .
-OPENSSL_EXPORT Span<const uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs);
+OPENSSL_EXPORT Array<uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs);
 
 // tls13_add_verify_sigalgs_pha adds the signature algorithms acceptable for the
 // peer signature to |out|. It returns true on success and false on error. This
@@ -2777,7 +2777,7 @@ enum ssl_ech_status_t {
 struct PHA_Config {
   static constexpr bool kAllowUniquePtr = true;
   // Holds negotiated sigalgs from the handshake for CertificateRequest message
-  Span<const uint16_t> verify_sigalgs;
+  Array<uint16_t> verify_sigalgs;
 
   // Holds CA's accepted by the server for CertificateRequest message
   const STACK_OF(CRYPTO_BUFFER) *names;
