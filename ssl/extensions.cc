@@ -4151,7 +4151,8 @@ bool tls1_parse_peer_sigalgs(SSL_HANDSHAKE *hs, const CBS *in_sigalgs) {
 }
 
 bool tls13_parse_peer_sigalgs_pha(SSL *ssl, const CBS *in_sigalgs) {
-  return false;
+  return CBS_len(in_sigalgs) != 0 &&
+         parse_u16_array(in_sigalgs, &ssl->s3->pha_config->verify_sigalgs);
 }
 
 bool tls1_get_legacy_signature_algorithm(uint16_t *out, const EVP_PKEY *pkey) {
