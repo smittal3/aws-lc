@@ -1110,7 +1110,9 @@ static bool tls13_parse_certificate_request_pha(SSL *ssl, const SSLMessage &msg)
     OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
     return false;
   }
-
+  uint8_t req_context[16];
+  CBS_copy_bytes(&context, req_context, CBS_len(&context));
+  OPENSSL_memcpy(ssl->s3->pha_config->request_context, req_context, sizeof(req_context));
   if (ca.present) {
     ssl->s3->pha_config->names =
         ssl_parse_client_CA_list(ssl, &alert, &ca.data).get();
@@ -1155,6 +1157,11 @@ bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
     }
 
     if(!ssl_on_certificate_selected_pha(ssl)) {
+      return false;
+    }
+
+
+    if(!tls13_add_certificate_pha(ssl)) {
       return false;
     }
 

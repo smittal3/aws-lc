@@ -1426,12 +1426,12 @@ bool ssl_check_leaf_certificate(SSL_HANDSHAKE *hs, EVP_PKEY *pkey,
 // true on success and false on error.
 bool ssl_on_certificate_selected(SSL_HANDSHAKE *hs);
 
-
 // ssl_on_certificate_selected_pha is called once the certificate has been
 // selected. It finalizes the certificate and initializes
 // |ssl->s3->pha_config->client_pubkey|. It returns true on success and
 // false on error.
 bool ssl_on_certificate_selected_pha(SSL *ssl);
+
 
 // TLS 1.3 key derivation.
 
@@ -2235,6 +2235,12 @@ bool tls13_process_finished(SSL_HANDSHAKE *hs, const SSLMessage &msg,
 
 bool tls13_add_certificate(SSL_HANDSHAKE *hs);
 
+// tls13_add_certificate_pha constructs and adds a Certificate message to the
+// passed in |SSL| object. Only the timestamp and OCSP extensions are supported,
+// delegated credentials and certificate compression can be added
+// later if needed.
+bool tls13_add_certificate_pha(SSL *ssl);
+
 // tls13_add_certificate_verify adds a TLS 1.3 CertificateVerify message to the
 // handshake. If it returns |ssl_private_key_retry|, it should be called again
 // to retry when the signing operation is completed.
@@ -2802,6 +2808,9 @@ struct PHA_Config {
 
   // client_pubkey is the public key the client is authenticating as.
   UniquePtr<EVP_PKEY> client_pubkey;
+
+  // Holds CertificateRequest context to be used by client when responding
+  uint8_t request_context[16];
 
   // scts_requested is true if the SCT extension is in the ClientHello.
   bool scts_requested : 1;

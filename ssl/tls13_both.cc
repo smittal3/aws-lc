@@ -384,6 +384,87 @@ bool tls13_process_finished(SSL_HANDSHAKE *hs, const SSLMessage &msg,
   return true;
 }
 
+bool tls13_add_certificate_pha(SSL *ssl) {
+  CERT *const cert = ssl->s3->pha_config->client_cert.get();
+
+  ScopedCBB cbb;
+  CBB *body, body_storage, certificate_list, context;
+
+  body = &body_storage;
+  if (!ssl->method->init_message(ssl, cbb.get(), body, SSL3_MT_CERTIFICATE)) {
+    return false;
+  }
+
+  // Certificate context should be request context from CertificateRequest
+  if (!CBB_add_u16_length_prefixed(body, &context) ||
+      !CBB_add_bytes(&context, ssl->s3->pha_config->request_context,
+                     sizeof(ssl->s3->pha_config->request_context)) ||
+      !CBB_add_u24_length_prefixed(body, &certificate_list)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return false;
+  }
+
+  if (!ssl_has_certificate_pha(ssl)) {
+    return ssl_add_message_cbb(ssl, cbb.get());
+  }
+
+  // |cert_private_keys| already checked above in |ssl_has_certificate|.
+  UniquePtr<STACK_OF(CRYPTO_BUFFER)> &chain =
+      cert->cert_private_keys[cert->cert_private_key_idx].chain;
+  CRYPTO_BUFFER *leaf_buf = sk_CRYPTO_BUFFER_value(chain.get(), 0);
+  CBB leaf, extensions;
+  if (!CBB_add_u24_length_prefixed(&certificate_list, &leaf) ||
+      !CBB_add_bytes(&leaf, CRYPTO_BUFFER_data(leaf_buf),
+                     CRYPTO_BUFFER_len(leaf_buf)) ||
+      !CBB_add_u16_length_prefixed(&certificate_list, &extensions)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return false;
+  }
+
+  if (ssl->s3->pha_config->scts_requested && cert->signed_cert_timestamp_list != nullptr) {
+    CBB contents;
+    if (!CBB_add_u16(&extensions, TLSEXT_TYPE_certificate_timestamp) ||
+        !CBB_add_u16_length_prefixed(&extensions, &contents) ||
+        !CBB_add_bytes(
+            &contents,
+            CRYPTO_BUFFER_data(cert->signed_cert_timestamp_list.get()),
+            CRYPTO_BUFFER_len(cert->signed_cert_timestamp_list.get())) ||
+        !CBB_flush(&extensions)) {
+      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+      return false;
+    }
+  }
+
+  if (ssl->s3->pha_config->ocsp_stapling_requested && cert->ocsp_response != NULL) {
+    CBB contents, ocsp_response;
+    if (!CBB_add_u16(&extensions, TLSEXT_TYPE_status_request) ||
+        !CBB_add_u16_length_prefixed(&extensions, &contents) ||
+        !CBB_add_u8(&contents, TLSEXT_STATUSTYPE_ocsp) ||
+        !CBB_add_u24_length_prefixed(&contents, &ocsp_response) ||
+        !CBB_add_bytes(&ocsp_response,
+                       CRYPTO_BUFFER_data(cert->ocsp_response.get()),
+                       CRYPTO_BUFFER_len(cert->ocsp_response.get())) ||
+        !CBB_flush(&extensions)) {
+      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+      return false;
+    }
+  }
+
+  for (size_t i = 1; i < sk_CRYPTO_BUFFER_num(chain.get()); i++) {
+    CRYPTO_BUFFER *cert_buf = sk_CRYPTO_BUFFER_value(chain.get(), i);
+    CBB child;
+    if (!CBB_add_u24_length_prefixed(&certificate_list, &child) ||
+        !CBB_add_bytes(&child, CRYPTO_BUFFER_data(cert_buf),
+                       CRYPTO_BUFFER_len(cert_buf)) ||
+        !CBB_add_u16(&certificate_list, 0 /* no extensions */)) {
+      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+      return false;
+    }
+  }
+
+  return ssl_add_message_cbb(ssl, cbb.get());
+}
+
 bool tls13_add_certificate(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
   CERT *const cert = hs->config->cert.get();
