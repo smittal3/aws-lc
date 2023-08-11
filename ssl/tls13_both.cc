@@ -94,6 +94,41 @@ bool tls13_get_cert_verify_signature_input(
   return true;
 }
 
+// tls13_get_cert_verify_signature_input_pha generates message to be signed for
+// TLS 1.3's CertificateVerify message. It sets |*out| to a newly allocated
+// buffer containing the result.
+static bool tls13_get_cert_verify_signature_input_pha(SSL *ssl, Array<uint8_t> *out) {
+  ScopedCBB cbb;
+  if (!CBB_init(cbb.get(), 64 + 33 + 1 + 2 * EVP_MAX_MD_SIZE)) {
+    return false;
+  }
+
+  for (size_t i = 0; i < 64; i++) {
+    if (!CBB_add_u8(cbb.get(), 0x20)) {
+      return false;
+    }
+  }
+
+  Span<const char> context = "TLS 1.3, client CertificateVerify";
+
+  // Note |context| includes the NUL byte separator.
+  if (!CBB_add_bytes(cbb.get(),
+                     reinterpret_cast<const uint8_t *>(context.data()),
+                     context.size())) {
+    return false;
+  }
+
+  uint8_t context_hash[EVP_MAX_MD_SIZE];
+  size_t context_hash_len;
+  if (!ssl->s3->pha_config->transcript.GetHash(context_hash, &context_hash_len) ||
+      !CBB_add_bytes(cbb.get(), context_hash, context_hash_len) ||
+      !CBBFinishArray(cbb.get(), out)) {
+    return false;
+  }
+
+  return true;
+}
+
 bool tls13_process_certificate(SSL_HANDSHAKE *hs, const SSLMessage &msg,
                                bool allow_anonymous) {
   SSL *const ssl = hs->ssl;
@@ -631,6 +666,52 @@ bool tls13_add_certificate(SSL_HANDSHAKE *hs) {
   return true;
 }
 
+enum ssl_private_key_result_t tls13_add_certificate_verify_pha(SSL *ssl) {
+  uint16_t signature_algorithm;
+  if (!tls13_choose_signature_algorithm_pha(ssl, &signature_algorithm)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_HANDSHAKE_FAILURE);
+    return ssl_private_key_failure;
+  }
+
+  ScopedCBB cbb;
+  CBB body;
+  if (!ssl->method->init_message(ssl, cbb.get(), &body,
+                                 SSL3_MT_CERTIFICATE_VERIFY) ||
+      !CBB_add_u16(&body, signature_algorithm)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return ssl_private_key_failure;
+  }
+
+  CBB child;
+  const size_t max_sig_len = EVP_PKEY_size(ssl->s3->pha_config->client_pubkey.get());
+  uint8_t *sig;
+  size_t sig_len;
+  if (!CBB_add_u16_length_prefixed(&body, &child) ||
+      !CBB_reserve(&child, &sig, max_sig_len)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+    return ssl_private_key_failure;
+  }
+
+  Array<uint8_t> msg;
+  if (!tls13_get_cert_verify_signature_input_pha(ssl, &msg)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+    return ssl_private_key_failure;
+  }
+
+  enum ssl_private_key_result_t sign_result = ssl_private_key_sign_pha(
+      ssl, sig, &sig_len, max_sig_len, signature_algorithm, msg);
+  if (sign_result != ssl_private_key_success) {
+    return sign_result;
+  }
+
+  if (!CBB_did_write(&child, sig_len) ||
+      !ssl_add_message_cbb(ssl, cbb.get())) {
+    return ssl_private_key_failure;
+  }
+
+  return ssl_private_key_success;
+}
+
 enum ssl_private_key_result_t tls13_add_certificate_verify(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
   uint16_t signature_algorithm;
@@ -686,6 +767,27 @@ bool tls13_add_finished(SSL_HANDSHAKE *hs) {
   uint8_t verify_data[EVP_MAX_MD_SIZE];
 
   if (!tls13_finished_mac(hs, verify_data, &verify_data_len, ssl->server)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+    OPENSSL_PUT_ERROR(SSL, SSL_R_DIGEST_CHECK_FAILED);
+    return false;
+  }
+
+  ScopedCBB cbb;
+  CBB body;
+  if (!ssl->method->init_message(ssl, cbb.get(), &body, SSL3_MT_FINISHED) ||
+      !CBB_add_bytes(&body, verify_data, verify_data_len) ||
+      !ssl_add_message_cbb(ssl, cbb.get())) {
+    return false;
+  }
+
+  return true;
+}
+
+bool tls13_add_finished_pha(SSL *ssl) {
+  size_t verify_data_len;
+  uint8_t verify_data[EVP_MAX_MD_SIZE];
+
+  if (!tls13_finished_mac_pha(ssl, verify_data, &verify_data_len)) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
     OPENSSL_PUT_ERROR(SSL, SSL_R_DIGEST_CHECK_FAILED);
     return false;

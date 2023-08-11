@@ -369,6 +369,21 @@ bool tls13_finished_mac(SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len,
   return true;
 }
 
+bool tls13_finished_mac_pha(SSL *ssl, uint8_t *out, size_t *out_len) {
+  PHA_Config *config = ssl->s3->pha_config.get();
+  Span<const uint8_t> traffic_secret = config->client_handshake_secret;
+
+  uint8_t context_hash[EVP_MAX_MD_SIZE];
+  size_t context_hash_len;
+  if (!config->transcript.GetHash(context_hash, &context_hash_len) ||
+      !tls13_verify_data(out, out_len, config->transcript.Digest(),
+                         ssl->version, traffic_secret,
+                         MakeConstSpan(context_hash, context_hash_len))) {
+    return false;
+  }
+  return true;
+}
+
 static const char kTLS13LabelResumptionPSK[] = "resumption";
 
 bool tls13_derive_session_psk(SSL_SESSION *session, Span<const uint8_t> nonce) {

@@ -4168,6 +4168,33 @@ bool tls1_get_legacy_signature_algorithm(uint16_t *out, const EVP_PKEY *pkey) {
   }
 }
 
+bool tls13_choose_signature_algorithm_pha(SSL *ssl, uint16_t *out) {
+  PHA_Config *config = ssl->s3->pha_config.get();
+  CERT *cert = config->client_cert.get();
+  Span<const uint16_t> peer_sigalgs = config->verify_sigalgs;
+
+  Span<const uint16_t> client_sigalgs = kSignSignatureAlgorithms;
+  if (!cert->sigalgs.empty()) {
+    client_sigalgs = cert->sigalgs;
+  }
+
+  for (uint16_t sigalg : client_sigalgs) {
+    if (!ssl_private_key_supports_signature_algorithm_pha(ssl, sigalg)) {
+      continue;
+    }
+
+    for (uint16_t peer_sigalg : peer_sigalgs) {
+      if (sigalg == peer_sigalg) {
+        *out = sigalg;
+        return true;
+      }
+    }
+  }
+
+  OPENSSL_PUT_ERROR(SSL, SSL_R_NO_COMMON_SIGNATURE_ALGORITHMS);
+  return false;
+}
+
 bool tls1_choose_signature_algorithm(SSL_HANDSHAKE *hs, uint16_t *out) {
   SSL *const ssl = hs->ssl;
   CERT *cert = hs->config->cert.get();

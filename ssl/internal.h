@@ -1064,11 +1064,24 @@ enum ssl_private_key_result_t ssl_private_key_sign(
     SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len, size_t max_out,
     uint16_t sigalg, Span<const uint8_t> in);
 
+// ssl_private_key_sign_pha works the same as |ssl_private_key_sign| but
+// is used in the PHA case where the handshake object is not available. Hints
+// are not supported.
+enum ssl_private_key_result_t ssl_private_key_sign_pha(
+    SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out,
+    uint16_t sigalg, Span<const uint8_t> in);
+
 enum ssl_private_key_result_t ssl_private_key_decrypt(SSL_HANDSHAKE *hs,
                                                       uint8_t *out,
                                                       size_t *out_len,
                                                       size_t max_out,
                                                       Span<const uint8_t> in);
+
+// ssl_private_key_supports_signature_algorithm_pha returns whether |ssl|'s
+// private key supports |sigalg|. Used in the PHA case where hs object is
+// unavailable.
+bool ssl_private_key_supports_signature_algorithm_pha(SSL *ssl,
+                                                      uint16_t sigalg);
 
 // ssl_private_key_supports_signature_algorithm returns whether |hs|'s private
 // key supports |sigalg|.
@@ -1492,7 +1505,12 @@ bool tls13_export_keying_material(SSL *ssl, Span<uint8_t> out,
 bool tls13_finished_mac(SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len,
                         bool is_server);
 
-// tls13_derive_session_psk calculates the PSK for this session based on the
+// tls13_finished_mac_pha works the same as |tls13_finished_mac| but is used for
+// the PHA case where the handshake object is not available. It calculates the
+// MAC for the client Finished.
+bool tls13_finished_mac_pha(SSL *ssl, uint8_t *out, size_t *out_len);
+
+    // tls13_derive_session_psk calculates the PSK for this session based on the
 // resumption master secret and |nonce|. It returns true on success, and false
 // on failure.
 bool tls13_derive_session_psk(SSL_SESSION *session, Span<const uint8_t> nonce);
@@ -2246,10 +2264,18 @@ bool tls13_add_certificate_pha(SSL *ssl);
 // to retry when the signing operation is completed.
 enum ssl_private_key_result_t tls13_add_certificate_verify(SSL_HANDSHAKE *hs);
 
+// tls13_add_certificate_verify_pha adds a TLS 1.3 CertificateVerify message
+// for the client in response to a post handshake authentication request.
+enum ssl_private_key_result_t tls13_add_certificate_verify_pha(SSL *ssl);
+
 bool tls13_add_finished(SSL_HANDSHAKE *hs);
 bool tls13_process_new_session_ticket(SSL *ssl, const SSLMessage &msg);
 bssl::UniquePtr<SSL_SESSION> tls13_create_session_with_ticket(SSL *ssl,
                                                               CBS *body);
+
+// tls13_add_finished_pha works the same way as tls13_add_finished but is
+// used in the PHA case where the handshake object is not available.
+bool tls13_add_finished_pha(SSL *ssl);
 
 // ssl_setup_extension_permutation computes a ClientHello extension permutation
 // for |hs|, if applicable. It returns true on success and false on error.
@@ -2450,6 +2476,8 @@ bool tls1_get_legacy_signature_algorithm(uint16_t *out, const EVP_PKEY *pkey);
 // with |hs|'s private key based on the peer's preferences and the algorithms
 // supported. It returns true on success and false on error.
 bool tls1_choose_signature_algorithm(SSL_HANDSHAKE *hs, uint16_t *out);
+
+bool tls13_choose_signature_algorithm_pha(SSL *ssl, uint16_t *out);
 
 // tls1_get_peer_verify_algorithms returns the signature schemes for which the
 // peer indicated support.
@@ -2811,6 +2839,9 @@ struct PHA_Config {
 
   // Holds CertificateRequest context to be used by client when responding
   uint8_t request_context[16];
+
+  // Holds client handshake secret for Client Finished
+  Span<uint8_t> client_handshake_secret;
 
   // scts_requested is true if the SCT extension is in the ClientHello.
   bool scts_requested : 1;

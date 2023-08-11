@@ -893,16 +893,13 @@ static enum ssl_hs_wait_t do_send_client_certificate_verify(SSL_HANDSHAKE *hs) {
 static enum ssl_hs_wait_t do_process_pha(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
 
-  // PHA is enabled and extension sent, store state needed for it
   if(ssl->s3->pha_ext == SSL_PHA_EXT_SENT && ssl->s3->pha_enabled == 1) {
 
-    // Initialize PHA_Config struct
     ssl->s3->pha_config = MakeUnique<PHA_Config>();
     if (ssl->s3->pha_config == nullptr) {
       return ssl_hs_error;
     }
 
-    // Copy all the required state
     if(hs->config->cert != nullptr) {
       ssl->s3->pha_config->client_cert = ssl_cert_dup(hs->config->cert.get());
     }
@@ -910,10 +907,13 @@ static enum ssl_hs_wait_t do_process_pha(SSL_HANDSHAKE *hs) {
     ssl->s3->pha_config->scts_requested = hs->scts_requested;
     ssl->s3->pha_config->ocsp_stapling_requested = hs->ocsp_stapling_requested;
 
-    // If PHA enabled, transfer handshake transcript to PHAConfig struct
-    if (ssl->s3->pha_config != nullptr && !ssl->server) {
-      ssl->s3->pha_config->transcript = std::move(hs->transcript);
-    }
+    ssl->s3->pha_config->transcript = std::move(hs->transcript);
+
+    Span<uint8_t> original = hs->client_handshake_secret();
+    uint8_t copiedData[sizeof(original)];
+    std::memcpy(copiedData, original.data(), original.size());
+    Span<uint8_t> copiedSpan(copiedData, sizeof(copiedData));
+    ssl->s3->pha_config->client_handshake_secret = copiedSpan;
   }
 
   hs->tls13_state = state_done;
@@ -1151,8 +1151,6 @@ static bool tls13_add_empty_certificate(SSL *ssl) {
 }
 
 bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
-  // Did not enable and send pha_ext, should not have received this message
-  // fatal error
   if(ssl->s3->pha_enabled != 1 || ssl->s3->pha_ext != SSL_PHA_EXT_SENT) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
     OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
@@ -1164,16 +1162,12 @@ bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
   // CertificateVerify, and Finished. Otherwise, respond with empty
   // Certificate message, and Finished
   if(data != nullptr && data->client_cert.get() != nullptr && data->client_pubkey != nullptr) {
-    // Process CertificateRequest first
     if(!tls13_parse_certificate_request_pha(ssl, msg)) {
       return false;
     }
 
-    // Construct Certificate, delegated credential and certificate compression
-    // extensions are not considered here. Can introduce later if required.
-
+    // Call cert_cb to update the certificate if defined
     if (ssl->s3->pha_config->client_cert->cert_cb != nullptr) {
-      // Call cert_cb to update the certificate.
       int rv = ssl->s3->pha_config->client_cert->cert_cb(ssl, ssl->s3->pha_config->client_cert->cert_cb_arg);
       if (rv <= 0) {
         ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
@@ -1186,10 +1180,21 @@ bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
       return false;
     }
 
-    // Construct CertificateVerify
-
-    // Add CertificateRequest to transcript for CertificateVerify
     ssl->s3->pha_config->transcript.Update(msg.raw);
+    // CertificateVerify
+    enum ssl_private_key_result_t result = tls13_add_certificate_verify_pha(ssl);
+    switch (result) {
+      case ssl_private_key_failure:
+        return false;
+      case ssl_private_key_success:
+        break;
+      case ssl_private_key_retry:
+        enum ssl_private_key_result_t res = tls13_add_certificate_verify_pha(ssl);
+        if(res != ssl_private_key_success) {
+          return false;
+        }
+        break;
+    }
 
   } else {
     // Construct Certificate Message with empty certificate list
@@ -1199,8 +1204,11 @@ bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
   }
 
   // Construct Finished, same for both cases
+  if(!tls13_add_finished_pha(ssl)) {
+    return false;
+  }
 
-  // Flush to Server
+  ssl->method->flush_flight(ssl);
 
   return true;
 }
