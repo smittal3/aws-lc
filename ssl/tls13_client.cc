@@ -1124,6 +1124,32 @@ static bool tls13_parse_certificate_request_pha(SSL *ssl, const SSLMessage &msg)
   return true;
 }
 
+// tls13_add_empty_certificate creates a certificate message with an
+// empty certificate list for the client. This is used in post handshake
+// authentication and the request context is not empty as is the case in a
+// normal handshake
+static bool tls13_add_empty_certificate(SSL *ssl) {
+  ScopedCBB cbb;
+  CBB *body, body_storage, context;
+
+  body = &body_storage;
+  if (!ssl->method->init_message(ssl, cbb.get(), body, SSL3_MT_CERTIFICATE)) {
+    return false;
+  }
+
+  // Certificate context should be request context from CertificateRequest
+  if (!CBB_add_u16_length_prefixed(body, &context) ||
+      !CBB_add_bytes(&context, ssl->s3->pha_config->request_context,
+                     sizeof(ssl->s3->pha_config->request_context)) ||
+      // Empty certificate list
+      !CBB_add_u8(body, 0)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return false;
+  }
+
+  return ssl_add_message_cbb(ssl, cbb.get());
+}
+
 bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
   // Did not enable and send pha_ext, should not have received this message
   // fatal error
@@ -1156,15 +1182,9 @@ bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
       }
     }
 
-    if(!ssl_on_certificate_selected_pha(ssl)) {
+    if(!ssl_on_certificate_selected_pha(ssl) || !tls13_add_certificate_pha(ssl)) {
       return false;
     }
-
-
-    if(!tls13_add_certificate_pha(ssl)) {
-      return false;
-    }
-
 
     // Construct CertificateVerify
 
@@ -1172,8 +1192,10 @@ bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
     ssl->s3->pha_config->transcript.Update(msg.raw);
 
   } else {
-    // Construct empty Certificate Message
-
+    // Construct Certificate Message with empty certificate list
+    if(!tls13_add_empty_certificate(ssl)) {
+      return false;
+    }
   }
 
   // Construct Finished, same for both cases
