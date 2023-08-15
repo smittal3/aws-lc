@@ -911,7 +911,7 @@ static enum ssl_hs_wait_t do_process_pha(SSL_HANDSHAKE *hs) {
 
     Span<uint8_t> original = hs->client_handshake_secret();
     uint8_t copiedData[sizeof(original)];
-    std::memcpy(copiedData, original.data(), original.size());
+    OPENSSL_memcpy(copiedData, original.data(), original.size());
     Span<uint8_t> copiedSpan(copiedData, sizeof(copiedData));
     ssl->s3->pha_config->client_handshake_secret = copiedSpan;
   }
