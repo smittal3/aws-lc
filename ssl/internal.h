@@ -2820,27 +2820,28 @@ enum ssl_ech_status_t {
 // at the end of the connection
 struct PHA_Config {
   static constexpr bool kAllowUniquePtr = true;
-  // Holds negotiated sigalgs from the handshake for CertificateRequest message
+  // verify_sigalgs holds negotiated sigalgs from the handshake for
+  // the CertificateRequest message
   Array<uint16_t> verify_sigalgs;
 
-  // Holds CA's accepted by the server for CertificateRequest message
+  // names holds CA's accepted by the server for CertificateRequest message
   const STACK_OF(CRYPTO_BUFFER) *names;
 
   // Holds original transcript hash for CertificateVerify from client response
-  uint8_t handshake_transcript_hash[EVP_MAX_MD_SIZE];
-  size_t handshake_transcript_hash_len;
+  // for PHA
   SSLTranscript transcript;
 
-  // Holds the client certificate
+  // client_cert is the configured client certificate
   UniquePtr<CERT> client_cert;
 
-  // client_pubkey is the public key the client is authenticating as.
+  // client_pubkey is the public key the client is authenticating as
   UniquePtr<EVP_PKEY> client_pubkey;
 
-  // Holds CertificateRequest context to be used by client when responding
+  // request_context is the context from CertificateRequest
+  // to be used by client when responding in Certificate message
   uint8_t request_context[16];
 
-  // Holds client handshake secret for Client Finished
+  // client_handshake_secret holds client handshake secret for Client Finished
   Span<uint8_t> client_handshake_secret;
 
   // scts_requested is true if the SCT extension is in the ClientHello.

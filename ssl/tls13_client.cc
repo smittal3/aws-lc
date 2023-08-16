@@ -833,7 +833,7 @@ static enum ssl_hs_wait_t do_send_client_encrypted_extensions(
 static enum ssl_hs_wait_t do_send_client_certificate(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
 
-  // The peer didn't request a certificate, process pha if applicable
+  // The peer didn't request a certificate.
   if (!hs->cert_request) {
     hs->tls13_state = state_complete_second_flight;
     return ssl_hs_ok;
@@ -910,15 +910,15 @@ static enum ssl_hs_wait_t do_process_pha(SSL_HANDSHAKE *hs) {
     ssl->s3->pha_config->transcript = std::move(hs->transcript);
 
     Span<uint8_t> original = hs->client_handshake_secret();
-    uint8_t copiedData[sizeof(original)];
+    uint8_t *copiedData = new uint8_t[original.size()];
     OPENSSL_memcpy(copiedData, original.data(), original.size());
-    Span<uint8_t> copiedSpan(copiedData, sizeof(copiedData));
+    Span<uint8_t> copiedSpan(copiedData, original.size());
     ssl->s3->pha_config->client_handshake_secret = copiedSpan;
   }
 
   hs->tls13_state = state_done;
   // flushing pending flight including client Finished
-  return ssl_hs_flush;
+  return ssl_hs_ok;
 }
 
 static enum ssl_hs_wait_t do_complete_second_flight(SSL_HANDSHAKE *hs) {
@@ -1161,7 +1161,7 @@ bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
   // If all required state is available, respond with Certificate,
   // CertificateVerify, and Finished. Otherwise, respond with empty
   // Certificate message, and Finished
-  if(data != nullptr && data->client_cert.get() != nullptr && data->client_pubkey != nullptr) {
+  if(data != nullptr && data->client_cert.get() != nullptr) {
     if(!tls13_parse_certificate_request_pha(ssl, msg)) {
       return false;
     }

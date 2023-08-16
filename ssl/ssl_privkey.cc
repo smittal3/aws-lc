@@ -234,7 +234,7 @@ enum ssl_private_key_result_t ssl_private_key_sign_pha(
 
   PHA_Config *config = ssl->s3->pha_config.get();
   const SSL_PRIVATE_KEY_METHOD *key_method = config->client_cert->key_method;
-  if (!ssl_cert_check_cert_private_keys_usage(config->client_cert.get())) {
+  if (!ssl_cert_check_cert_private_keys_usage(  config->client_cert.get())) {
     return ssl_private_key_failure;
   }
   EVP_PKEY *privatekey =
