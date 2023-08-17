@@ -1091,6 +1091,7 @@ bool tls13_process_new_session_ticket(SSL *ssl, const SSLMessage &msg) {
   return true;
 }
 static bool tls13_parse_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
+  assert(!ssl->server);
   SSLExtension sigalgs(TLSEXT_TYPE_signature_algorithms),
       ca(TLSEXT_TYPE_certificate_authorities);
   CBS body = msg.body, context, extensions, supported_signature_algorithms;
@@ -1129,6 +1130,7 @@ static bool tls13_parse_certificate_request_pha(SSL *ssl, const SSLMessage &msg)
 // authentication and the request context is not empty as is the case in a
 // normal handshake
 static bool tls13_add_empty_certificate(SSL *ssl) {
+  assert(!ssl->server);
   ScopedCBB cbb;
   CBB *body, body_storage, context;
 
@@ -1151,6 +1153,7 @@ static bool tls13_add_empty_certificate(SSL *ssl) {
 }
 
 bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
+  assert(!ssl->server);
   if(!ssl->s3->pha_enabled || ssl->s3->pha_ext != SSL_PHA_EXT_SENT) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
     OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);

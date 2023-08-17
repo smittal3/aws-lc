@@ -379,6 +379,7 @@ bool tls13_finished_mac(SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len,
 }
 
 bool tls13_finished_mac_pha(SSL *ssl, uint8_t *out, size_t *out_len) {
+  assert(!ssl->server);
   PHA_Config *config = ssl->s3->pha_config.get();
   Span<const uint8_t> traffic_secret = config->client_handshake_secret;
 

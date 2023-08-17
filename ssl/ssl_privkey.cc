@@ -232,6 +232,7 @@ enum ssl_private_key_result_t ssl_private_key_sign_pha(
     SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out,
    uint16_t sigalg, Span<const uint8_t> in) {
 
+  assert(!ssl->server);
   PHA_Config *config = ssl->s3->pha_config.get();
   const SSL_PRIVATE_KEY_METHOD *key_method = config->client_cert->key_method;
   if (!ssl_cert_check_cert_private_keys_usage(  config->client_cert.get())) {
@@ -429,6 +430,7 @@ static bool ssl_private_key_supports_signature_algorithm_helper(SSL *ssl, EVP_PK
 }
 
 bool ssl_private_key_supports_signature_algorithm_pha(SSL *ssl, uint16_t sigalg) {
+  assert(!ssl->server);
   return ssl_private_key_supports_signature_algorithm_helper(ssl, ssl->s3->pha_config->client_pubkey.get(), sigalg);
 }
 

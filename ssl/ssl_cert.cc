@@ -416,6 +416,7 @@ bool ssl_has_certificate(const SSL_HANDSHAKE *hs) {
 }
 
 bool ssl_has_certificate_pha(const SSL *ssl) {
+  assert(!ssl->server);
   if (!ssl_cert_check_cert_private_keys_usage(ssl->s3->pha_config->client_cert.get())) {
     return false;
   }
@@ -875,6 +876,7 @@ bool ssl_on_certificate_selected(SSL_HANDSHAKE *hs) {
 }
 
 bool ssl_on_certificate_selected_pha(SSL *ssl) {
+  assert(!ssl->server);
   if (!ssl_has_certificate_pha(ssl)) {
     // Nothing to do.
     return true;

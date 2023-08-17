@@ -108,6 +108,7 @@ bool tls13_get_cert_verify_signature_input(
 // TLS 1.3's CertificateVerify message. It sets |*out| to a newly allocated
 // buffer containing the result.
 static bool tls13_get_cert_verify_signature_input_pha(SSL *ssl, Array<uint8_t> *out) {
+  assert(!ssl->server);
   return tls13_get_cert_verify_signature_input_helper(ssl->s3->pha_config->transcript, out, ssl_cert_verify_client);
 }
 
@@ -402,6 +403,7 @@ bool tls13_process_finished(SSL_HANDSHAKE *hs, const SSLMessage &msg,
 }
 
 bool tls13_add_certificate_pha(SSL *ssl) {
+  assert(!ssl->server);
   CERT *const cert = ssl->s3->pha_config->client_cert.get();
 
   ScopedCBB cbb;
@@ -644,6 +646,7 @@ bool tls13_add_certificate(SSL_HANDSHAKE *hs) {
 }
 
 enum ssl_private_key_result_t tls13_add_certificate_verify_pha(SSL *ssl) {
+  assert(!ssl->server);
   uint16_t signature_algorithm;
   if (!tls13_choose_signature_algorithm_pha(ssl, &signature_algorithm)) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_HANDSHAKE_FAILURE);
@@ -764,6 +767,7 @@ bool tls13_add_finished_pha(SSL *ssl) {
   size_t verify_data_len;
   uint8_t verify_data[EVP_MAX_MD_SIZE];
 
+  assert(!ssl->server);
   if (!tls13_finished_mac_pha(ssl, verify_data, &verify_data_len)) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
     OPENSSL_PUT_ERROR(SSL, SSL_R_DIGEST_CHECK_FAILED);

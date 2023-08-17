@@ -4149,6 +4149,7 @@ bool tls1_parse_peer_sigalgs(SSL_HANDSHAKE *hs, const CBS *in_sigalgs) {
 }
 
 bool tls13_parse_peer_sigalgs_pha(SSL *ssl, const CBS *in_sigalgs) {
+  assert(!ssl->server);
   return CBS_len(in_sigalgs) != 0 &&
          parse_u16_array(in_sigalgs, &ssl->s3->pha_config->verify_sigalgs);
 }
@@ -4167,6 +4168,7 @@ bool tls1_get_legacy_signature_algorithm(uint16_t *out, const EVP_PKEY *pkey) {
 }
 
 bool tls13_choose_signature_algorithm_pha(SSL *ssl, uint16_t *out) {
+  assert(!ssl->server);
   PHA_Config *config = ssl->s3->pha_config.get();
   CERT *cert = config->client_cert.get();
   Span<const uint16_t> peer_sigalgs = config->verify_sigalgs;
