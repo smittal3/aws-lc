@@ -8959,7 +8959,7 @@ TEST(SSLTest, ImmediatePHA) {
   bool scts_before = client.get()->s3->hs->scts_requested;
   bool ocsp_before = client.get()->s3->hs->ocsp_stapling_requested;
 
-  EXPECT_EQ(client.get()->s3->pha_config, nullptr);
+  EXPECT_FALSE(client.get()->s3->pha_config);
 
   // Second client flight, process server messages and send client Finished
   SSL_do_handshake(client.get());
@@ -8970,7 +8970,7 @@ TEST(SSLTest, ImmediatePHA) {
 
   // Should have initialized PHA_Config on client side since pha is enabled
   // and should have copied appropriate data
-  EXPECT_NE(client.get()->s3->pha_config, nullptr);
+  EXPECT_TRUE(client.get()->s3->pha_config);
   EXPECT_EQ(client_cert_before->cert_private_key_idx, client_cert_after->cert_private_key_idx);
   EXPECT_EQ(client_cert_before->cert_private_keys.size(), client_cert_after->cert_private_keys.size());
   EXPECT_EQ(scts_before, client.get()->s3->pha_config->scts_requested);
@@ -9045,7 +9045,7 @@ TEST(SSLTest, ImmediatePHA) {
   EXPECT_TRUE(verify_sigalgs.size() == sigalgs_client_copy.size());
   // Check if the contents are the same in the same order
   for (size_t i = 0; i < verify_sigalgs.size(); ++i) {
-    EXPECT_TRUE(verify_sigalgs[i] == sigalgs_client_copy[i]);
+    EXPECT_EQ(verify_sigalgs[i], sigalgs_client_copy[i]);
   }
   // Check if the underlying data is different (deep copy check)
   EXPECT_TRUE(verify_sigalgs.data() != sigalgs_client_copy.data());

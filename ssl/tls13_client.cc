@@ -893,7 +893,7 @@ static enum ssl_hs_wait_t do_send_client_certificate_verify(SSL_HANDSHAKE *hs) {
 static enum ssl_hs_wait_t do_process_pha(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
 
-  if(ssl->s3->pha_ext == SSL_PHA_EXT_SENT && ssl->s3->pha_enabled == 1) {
+  if(ssl->s3->pha_ext == SSL_PHA_EXT_SENT && ssl->s3->pha_enabled) {
 
     ssl->s3->pha_config = MakeUnique<PHA_Config>();
     if (ssl->s3->pha_config == nullptr) {
@@ -1151,7 +1151,7 @@ static bool tls13_add_empty_certificate(SSL *ssl) {
 }
 
 bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
-  if(ssl->s3->pha_enabled != 1 || ssl->s3->pha_ext != SSL_PHA_EXT_SENT) {
+  if(!ssl->s3->pha_enabled || ssl->s3->pha_ext != SSL_PHA_EXT_SENT) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
     OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
     return false;

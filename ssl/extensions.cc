@@ -503,8 +503,6 @@ bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
 
 Array<uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs) {
   Span<const uint16_t> sigalgs = tls12_get_verify_sigalgs(hs);
-
-  // Create copy into array
   Array<uint16_t> copySigalgs;
   copySigalgs.CopyFrom(sigalgs);
   return copySigalgs;

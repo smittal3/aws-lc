@@ -404,8 +404,12 @@ enum ssl_private_key_result_t ssl_private_key_decrypt(SSL_HANDSHAKE *hs,
   return ssl_private_key_success;
 }
 
-bool ssl_private_key_supports_signature_algorithm_pha(SSL *ssl, uint16_t sigalg) {
-  if (!pkey_supports_algorithm(ssl, ssl->s3->pha_config->client_pubkey.get(), sigalg)) {
+// ssl_private_key_supports_signature_algorithm_helper abstracts
+// functionality from |ssl_private_key_supports_signature_algorithm| to
+// accommodate the PHA case where |client_pubkey| is in a different
+// location.
+static bool ssl_private_key_supports_signature_algorithm_helper(SSL *ssl, EVP_PKEY *client_pubkey, uint16_t sigalg) {
+  if (!pkey_supports_algorithm(ssl, client_pubkey, sigalg)) {
     return false;
   }
 
@@ -416,7 +420,7 @@ bool ssl_private_key_supports_signature_algorithm_pha(SSL *ssl, uint16_t sigalg)
   // SHA-512. 1024-bit RSA is sometimes used for test credentials, so check the
   // size so that we can fall back to another algorithm in that case.
   const SSL_SIGNATURE_ALGORITHM *alg = get_signature_algorithm(sigalg);
-  if (alg->is_rsa_pss && (size_t)EVP_PKEY_size(ssl->s3->pha_config->client_pubkey.get()) <
+  if (alg->is_rsa_pss && (size_t)EVP_PKEY_size(client_pubkey) <
                              2 * EVP_MD_size(alg->digest_func()) + 2) {
     return false;
   }
@@ -424,26 +428,13 @@ bool ssl_private_key_supports_signature_algorithm_pha(SSL *ssl, uint16_t sigalg)
   return true;
 }
 
+bool ssl_private_key_supports_signature_algorithm_pha(SSL *ssl, uint16_t sigalg) {
+  return ssl_private_key_supports_signature_algorithm_helper(ssl, ssl->s3->pha_config->client_pubkey.get(), sigalg);
+}
+
 bool ssl_private_key_supports_signature_algorithm(SSL_HANDSHAKE *hs,
                                                   uint16_t sigalg) {
-  SSL *const ssl = hs->ssl;
-  if (!pkey_supports_algorithm(ssl, hs->local_pubkey.get(), sigalg)) {
-    return false;
-  }
-
-  // Ensure the RSA key is large enough for the hash. RSASSA-PSS requires that
-  // emLen be at least hLen + sLen + 2. Both hLen and sLen are the size of the
-  // hash in TLS. Reasonable RSA key sizes are large enough for the largest
-  // defined RSASSA-PSS algorithm, but 1024-bit RSA is slightly too small for
-  // SHA-512. 1024-bit RSA is sometimes used for test credentials, so check the
-  // size so that we can fall back to another algorithm in that case.
-  const SSL_SIGNATURE_ALGORITHM *alg = get_signature_algorithm(sigalg);
-  if (alg->is_rsa_pss && (size_t)EVP_PKEY_size(hs->local_pubkey.get()) <
-                             2 * EVP_MD_size(alg->digest_func()) + 2) {
-    return false;
-  }
-
-  return true;
+  return ssl_private_key_supports_signature_algorithm_helper(hs->ssl, hs->local_pubkey.get(), sigalg);
 }
 
 BSSL_NAMESPACE_END

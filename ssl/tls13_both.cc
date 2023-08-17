@@ -48,8 +48,12 @@ const uint8_t kTLS13DowngradeRandom[8] = {0x44, 0x4f, 0x57, 0x4e,
 const uint8_t kJDK11DowngradeRandom[8] = {0xed, 0xbf, 0xb4, 0xa8,
                                           0xc2, 0x47, 0x10, 0xff};
 
-bool tls13_get_cert_verify_signature_input(
-    SSL_HANDSHAKE *hs, Array<uint8_t> *out,
+// tls13_get_cert_verify_signature_input_helper abstracts functionality
+// from |tls13_get_cert_verify_signature_input| to accommodate the PHA
+// case where |transcript| is stored in a different location.
+static bool tls13_get_cert_verify_signature_input_helper(
+    SSLTranscript &transcript,
+    Array<uint8_t> *out,
     enum ssl_cert_verify_context_t cert_verify_context) {
   ScopedCBB cbb;
   if (!CBB_init(cbb.get(), 64 + 33 + 1 + 2 * EVP_MAX_MD_SIZE)) {
@@ -85,7 +89,7 @@ bool tls13_get_cert_verify_signature_input(
 
   uint8_t context_hash[EVP_MAX_MD_SIZE];
   size_t context_hash_len;
-  if (!hs->transcript.GetHash(context_hash, &context_hash_len) ||
+  if (!transcript.GetHash(context_hash, &context_hash_len) ||
       !CBB_add_bytes(cbb.get(), context_hash, context_hash_len) ||
       !CBBFinishArray(cbb.get(), out)) {
     return false;
@@ -94,39 +98,17 @@ bool tls13_get_cert_verify_signature_input(
   return true;
 }
 
+bool tls13_get_cert_verify_signature_input(
+    SSL_HANDSHAKE *hs, Array<uint8_t> *out,
+    enum ssl_cert_verify_context_t cert_verify_context) {
+  return tls13_get_cert_verify_signature_input_helper(hs->transcript, out, cert_verify_context);
+}
+
 // tls13_get_cert_verify_signature_input_pha generates message to be signed for
 // TLS 1.3's CertificateVerify message. It sets |*out| to a newly allocated
 // buffer containing the result.
 static bool tls13_get_cert_verify_signature_input_pha(SSL *ssl, Array<uint8_t> *out) {
-  ScopedCBB cbb;
-  if (!CBB_init(cbb.get(), 64 + 33 + 1 + 2 * EVP_MAX_MD_SIZE)) {
-    return false;
-  }
-
-  for (size_t i = 0; i < 64; i++) {
-    if (!CBB_add_u8(cbb.get(), 0x20)) {
-      return false;
-    }
-  }
-
-  Span<const char> context = "TLS 1.3, client CertificateVerify";
-
-  // Note |context| includes the NUL byte separator.
-  if (!CBB_add_bytes(cbb.get(),
-                     reinterpret_cast<const uint8_t *>(context.data()),
-                     context.size())) {
-    return false;
-  }
-
-  uint8_t context_hash[EVP_MAX_MD_SIZE];
-  size_t context_hash_len;
-  if (!ssl->s3->pha_config->transcript.GetHash(context_hash, &context_hash_len) ||
-      !CBB_add_bytes(cbb.get(), context_hash, context_hash_len) ||
-      !CBBFinishArray(cbb.get(), out)) {
-    return false;
-  }
-
-  return true;
+  return tls13_get_cert_verify_signature_input_helper(ssl->s3->pha_config->transcript, out, ssl_cert_verify_client);
 }
 
 bool tls13_process_certificate(SSL_HANDSHAKE *hs, const SSLMessage &msg,
