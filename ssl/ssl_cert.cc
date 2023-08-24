@@ -732,6 +732,49 @@ UniquePtr<STACK_OF(CRYPTO_BUFFER)> ssl_parse_client_CA_list(SSL *ssl,
   return ret;
 }
 
+STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs_pha(const SSL_HANDSHAKE *hs) {
+  STACK_OF(CRYPTO_BUFFER) *names = nullptr;
+  if(hs->config->client_CA) {
+    names = hs->config->client_CA.get();
+  } else if(hs->ssl->ctx->client_CA) {
+    names = hs->ssl->ctx->client_CA.get();
+  }
+
+  // Shouldn't be null since ssl_has_client_CAs called before in
+  // do_certificate_request_pha to check
+  if (names == nullptr) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return nullptr;
+  }
+
+  STACK_OF(CRYPTO_BUFFER) *copy = sk_CRYPTO_BUFFER_deep_copy(
+      names, buffer_up_ref, CRYPTO_BUFFER_free);
+  return copy;
+}
+
+bool ssl_add_client_CA_list_pha(SSL *ssl, CBB *cbb) {
+  CBB child, name_cbb;
+
+  if (!CBB_add_u16_length_prefixed(cbb, &child)) {
+    return false;
+  }
+
+  const STACK_OF(CRYPTO_BUFFER) *names = ssl->s3->pha_config->names;
+  // This should not be null
+  if (names == nullptr) {
+    return false;
+  }
+
+  for (const CRYPTO_BUFFER *name : names) {
+    if (!CBB_add_u16_length_prefixed(&child, &name_cbb) ||
+        !CBB_add_bytes(&name_cbb, CRYPTO_BUFFER_data(name),
+                       CRYPTO_BUFFER_len(name))) {
+      return false;
+    }
+  }
+  return CBB_flush(cbb);
+}
+
 bool ssl_has_client_CAs(const SSL_CONFIG *cfg) {
   const STACK_OF(CRYPTO_BUFFER) *names = cfg->client_CA.get();
   if (names == nullptr) {

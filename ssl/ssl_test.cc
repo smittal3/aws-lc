@@ -8853,6 +8853,353 @@ TEST(SSLTest, ProcessTLS13NewSessionTicket) {
                                                     sizeof(kTicket)));
 }
 
+// Returns a stack of cert subject names to configure the server client CA
+// store
+static STACK_OF(X509_NAME)* get_test_cert_store() {
+  bssl::UniquePtr<STACK_OF(X509_NAME)> CAstore(sk_X509_NAME_new_null());
+  bssl::UniquePtr<X509> cert1 = CertFromPEM(R"(
+-----BEGIN CERTIFICATE-----
+MIIC/TCCAeWgAwIBAgIUT136jaRkxLYNgpupnTu25xHq5m4wDQYJKoZIhvcNAQEL
+BQAwDjEMMAoGA1UEAwwDQ0ExMB4XDTIzMDgwMjAwMzAzMFoXDTI0MDgwMTAwMzAz
+MFowDjEMMAoGA1UEAwwDQ0ExMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+AQEAvbHHrVFIlqABvgHurLII5pqBcSwkn8flnJTDiHO/XommP9xh1uiRrumDtbRS
+MTQBmJGEbtZBYE+sZt22WpQWDsmMSRXNzwup/YmAq2BtLoTu67xnNsgrn4k+lDHw
+2InMns35D327KxUCymHcB7PsuunuM+QprsP7m3mbBdttdpNNXPaYNk/TNUFUJHmw
+ydlfrH9sZ9NcaMyw2ppGGz3awk6Al0I7F3dmDzydHwefkz8JNfWsinLzNu1WcWEj
+xko3/X2748zg3sHoLXdsWn974bCuCa2vrC/F1DXagV4v8TSBaLwVLPWPMh6BwUhn
+Kg+Msa+PfyXnLV9kdKBqZikiOwIDAQABo1MwUTAdBgNVHQ4EFgQUgKN1SQum6wWi
+fx4ruSRDhtr88YIwHwYDVR0jBBgwFoAUgKN1SQum6wWifx4ruSRDhtr88YIwDwYD
+VR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAhNVJ4bu3C/27RkVamran
+Z5kNAPXBt4wiS8DcZas4jdJV4yBJ/ZukjCHTMaySQ5KhZo/p2n41O5d2ycd1UNRe
+11dmoUOS0x/7yyzzKTU/mPVJnCtGa6UjDOeymm6vTpTOwQSZ4z+rsjXyN1Le7RIe
+ipyaBUvDahRpdhdN0aXEI7GrrMcgKmd7SmOcSf6WYsh0fUksr/lqoGjuxRe5W4Yq
+Kaaa+smNaE0SpxySRNdOHpssx7VQpbHgHNhZjjc0e/D/CWQlnTXm/7SIhlfFmPVg
+jVQZ+lbZxWRHx6/EbD6ndbHSt9AyazFlQ4vgtCalBX2+zlGQtbfP91nU8TbVdOF/
+Qw==
+-----END CERTIFICATE-----
+)");
+  sk_X509_NAME_push(CAstore.get(), X509_get_subject_name(cert1.get()));
+  X509_up_ref(cert1.get());
+
+  bssl::UniquePtr<X509> cert2 = CertFromPEM(R"(
+-----BEGIN CERTIFICATE-----
+MIIC/TCCAeWgAwIBAgIUe/yHNAn/viCC0lwDlwwA/dtezi4wDQYJKoZIhvcNAQEL
+BQAwDjEMMAoGA1UEAwwDQ0EyMB4XDTIzMDgwMjAwMzAzNFoXDTI0MDgwMTAwMzAz
+NFowDjEMMAoGA1UEAwwDQ0EyMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+AQEAyU53biiJBkJCpIZk0ZHpNwFA5eLI2sY732rulep1zU95cOcPgDoaqTJGKW9e
+20l2RM2GuBbO0fWkjg3DTQDcM4bYPf/vPblgYmgeTfKomK0kcMtnJwWDCAekzDtK
+mgWPzPNNGWvopJj0Z43HtM8LBv8GAtERdI3kfyCWS79go9rvq+BIadCQDcVs09a+
+EAlgjxWSacWeMJm1o1rvKpsGmn1aQYs7Q1CTpNBK+ZKX+zsqmOlLYgCbphpcH+so
+fFlGW++Xs90XYQdM1rROIKVpBhXpvr/uOjWMN1tmhwPu80Qrj42B7ULPGyUuKxUa
+pfWLqTxA5bUlDZ5qDl4oahz9DwIDAQABo1MwUTAdBgNVHQ4EFgQUcBo6cbWERiMM
+k7Z+krm8TVKGMe0wHwYDVR0jBBgwFoAUcBo6cbWERiMMk7Z+krm8TVKGMe0wDwYD
+VR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAnBqOH0FOPeVAbPtn+Z01
+a628K/eNT0dRIETnsoBavrlb8OjFdGs1AXXMzWhXXnTmcJeUYY+UBlo80boums+j
+aWbKYKwwYAQSps4mIijqJUYIQ0J2/uawAfA0wvgkpt89R0mtXzNGMJm9IZNFLzdK
+HiIruupKmaf5F5GfQyJVxSnGPDeNlgvGoXFVemESE3aIldglpIFnWDvyiEw2RFkZ
+JSjAUsUAj/ppK1LkO5MsyaA9/hR7EK3NxXDI4eGlNNFa6yVSzQpGwHasYOtfz2nO
+o9N3ZAI89whIVQlWNlzdOMs1ON7PnQDDeMh3+k+Zbi3vHN0aT/3OG1qJNXtZ3eJA
+fg==
+-----END CERTIFICATE-----
+)");
+  sk_X509_NAME_push(CAstore.get(), X509_get_subject_name(cert2.get()));
+  X509_up_ref(cert2.get());
+
+  return CAstore.release();
+}
+
+// Testing: when PHA is configured by the server (before the connection is
+// established) to occur right after the handshake, esnure PHA state is
+// processed in server tls state machine, |PHA_Config| is initialized,
+// and sigalgs + client CA data is copied appropriately to |PHA_Config|
+TEST(SSLTest, ImmediatePHA) {
+  // Configure client and server to negotiate TLS 1.3 only.
+  bssl::UniquePtr<SSL_CTX> client_ctx(CreateContextWithTestCertificate(TLS_method()));
+  bssl::UniquePtr<SSL_CTX> server_ctx(
+      CreateContextWithTestCertificate(TLS_method()));
+  ASSERT_TRUE(client_ctx);
+  ASSERT_TRUE(server_ctx);
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
+
+  // Configure server to ask for client authentication immediately after the
+  // handshake
+  SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER | SSL_VERIFY_POST_HANDSHAKE, nullptr);
+
+  // Configure trust store for server.
+  SSL_CTX_set_client_CA_list(server_ctx.get(), get_test_cert_store());
+
+  bssl::UniquePtr<SSL> client, server;
+  ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
+                                    server_ctx.get()));
+
+  // Enable sending pha_ext on client side
+  SSL_set_post_handshake_auth(client.get(), 1);
+
+  // Start the handshake, client first flight and write. Sends the extension
+  EXPECT_TRUE(client.get()->s3->pha_enabled);
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_NONE);
+  SSL_do_handshake(client.get());
+
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_EXT_SENT);
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_NONE);
+
+  // First server flight, process client hello and send Server Hello,
+  // Certificate, CertificateVerify and configure immediate PHA
+  SSL_do_handshake(server.get());
+  // Since |SSL_VERIFY_POST_HANDSHAKE| is set, request pending
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_REQUEST_PENDING);
+  // should be false so CertificateRequest not sent in initial message
+  EXPECT_FALSE(server.get()->s3->hs->cert_request);
+
+  // Second client flight, process server messages and send client Finished
+  SSL_do_handshake(client.get());
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_EXT_SENT);
+
+  // Storing sigalgs since handshake object is destroyed in next server processing
+  Array<uint16_t> verify_sigalgs = tls13_get_verify_sigalgs_pha(server.get()->s3->hs.get());
+  // Storing clientCA list before copy
+  const STACK_OF(CRYPTO_BUFFER) *names = ssl_get_client_CAs_pha(server.get()->s3->hs.get());
+
+  // Second server flight, process client Finished and put CertificateRequest
+  // on the wire to be flushed on the next Server write
+  SSL_do_handshake(server.get());
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_REQUESTED);
+
+  // Check initialization of PHA_config struct
+  EXPECT_TRUE(server.get()->s3->pha_config);
+  // Get deep copy of verify_sigalgs made for PHA
+  Array<uint16_t>& copy_sigalgs = server.get()->s3->pha_config->verify_sigalgs;
+  const STACK_OF(CRYPTO_BUFFER) *names_copy = server.get()->s3->pha_config->names;
+
+  // Verify copying of sigalgs
+  EXPECT_TRUE(copy_sigalgs.data() != nullptr);
+  EXPECT_TRUE(verify_sigalgs.size() == copy_sigalgs.size());
+  // Check if the contents are the same in the same order
+  for (size_t i = 0; i < verify_sigalgs.size(); ++i) {
+    EXPECT_TRUE(verify_sigalgs[i] == copy_sigalgs[i]);
+  }
+  // Check if the underlying data is different (deep copy check)
+  EXPECT_TRUE(verify_sigalgs.data() != copy_sigalgs.data());
+
+  //Verify copying of CAs
+  // Check size
+  EXPECT_TRUE(sk_CRYPTO_BUFFER_num(names) == sk_CRYPTO_BUFFER_num(names_copy));
+
+  // Check each element
+  for (size_t i = 0; i < sk_CRYPTO_BUFFER_num(names); i++) {
+    const CRYPTO_BUFFER *buf1 = sk_CRYPTO_BUFFER_value(names, i);
+    const CRYPTO_BUFFER *buf2 = sk_CRYPTO_BUFFER_value(names_copy, i);
+
+    // check equality of elements
+    EXPECT_TRUE(CRYPTO_BUFFER_len(buf1) == CRYPTO_BUFFER_len(buf2));
+    EXPECT_TRUE(CRYPTO_memcmp(CRYPTO_BUFFER_data(buf1), CRYPTO_BUFFER_data(buf2), CRYPTO_BUFFER_len(buf1)) == 0);
+
+    // Ensure underlying pointers to data are different
+    EXPECT_TRUE(CRYPTO_BUFFER_data(buf1) == CRYPTO_BUFFER_data(buf2));
+  }
+
+  // Ensure handshake is completed
+  EXPECT_TRUE(server.get()->s3->initial_handshake_complete);
+  EXPECT_TRUE(client.get()->s3->initial_handshake_complete);
+
+  // Server should have data on the wire that has not been encrypted or
+  // flushed yet
+  EXPECT_TRUE(server.get()->s3->pending_hs_data);
+  // CertificateRequest followed by NewSessionTicket should get flushed
+  SSL_write(server.get(), nullptr, 0);
+  EXPECT_FALSE(server.get()->s3->pending_hs_data);
+
+  // Client processes it, should parse and call tls13_post_handshake where
+  // function to process the CertificateRequest is used
+  SSL_read(client.get(), nullptr, 0);
+}
+
+// Testing: when PHA extension is sent by the client and the server does not a
+// authenticate client in the initial handshake. Server chooses to authenticate
+// client after sending application data via |SSL_verify_client_post_handshake|.
+// Ensure can only do so after the handshake, are able to use PHA_Config data
+// to form CertificateRequest, message is being flushed to client.
+TEST(SSLTest, NonImmediatePHAWithoutInitialAuth) {
+  // Configure client and server to negotiate TLS 1.3 only.
+  bssl::UniquePtr<SSL_CTX> client_ctx(CreateContextWithTestCertificate(TLS_method()));
+  bssl::UniquePtr<SSL_CTX> server_ctx(
+      CreateContextWithTestCertificate(TLS_method()));
+  ASSERT_TRUE(client_ctx);
+  ASSERT_TRUE(server_ctx);
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
+
+  // Configure trust store for server.
+  SSL_CTX_set_client_CA_list(server_ctx.get(), get_test_cert_store());
+
+  bssl::UniquePtr<SSL> client, server;
+  ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
+                                    server_ctx.get()));
+
+  // Enable sending pha_ext on client side, server may authenticate at any time
+  // after the initial handshake
+  SSL_set_post_handshake_auth(client.get(), 1);
+
+  // Start the handshake, client first flight and write. Sends the extension
+  EXPECT_TRUE(client.get()->s3->pha_enabled);
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_NONE);
+  SSL_do_handshake(client.get());
+
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_EXT_SENT);
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_NONE);
+
+  // First server flight, process client hello and send Server Hello,
+  // Certificate, CertificateVerify
+  SSL_do_handshake(server.get());
+  // extension should be received, nothing pending
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_EXT_RECEIVED);
+  // should be false so CertificateRequest not sent in initial message
+  EXPECT_FALSE(server.get()->s3->hs->cert_request);
+
+  // Initial handshake not over, should not work
+  EXPECT_TRUE(SSL_verify_client_post_handshake(server.get()) == 0);
+
+  // Second client flight, process server messages and send client Finished
+  SSL_do_handshake(client.get());
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_EXT_SENT);
+
+  // Second server flight, process client Finished
+  SSL_do_handshake(server.get());
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_EXT_RECEIVED);
+
+  // Check initialization of PHA_config struct
+  EXPECT_TRUE(server.get()->s3->pha_config);
+
+  // Ensure handshake is completed
+  EXPECT_TRUE(server.get()->s3->initial_handshake_complete);
+  EXPECT_TRUE(client.get()->s3->initial_handshake_complete);
+
+  // Sending application data
+  SSL_write(server.get(), "hello", 5);
+  uint8_t msg[5];
+  SSL_read(client.get(), &msg, 5);
+  EXPECT_EQ(Bytes(msg), Bytes("hello"));
+
+  // Server decides to authenticate client
+  SSL_set_verify(server.get(), SSL_VERIFY_PEER, nullptr);
+  // No pending messages on wire
+  EXPECT_FALSE(server.get()->s3->pending_hs_data);
+  // Puts CertificateRequest on the wire but not flushed yet
+  EXPECT_TRUE(SSL_verify_client_post_handshake(server.get()));
+  // Now pending message on wire
+  EXPECT_TRUE(server.get()->s3->pending_hs_data);
+
+  // Message gets flushed
+  SSL_write(server.get(), nullptr, 0);
+  EXPECT_FALSE(server.get()->s3->pending_hs_data);
+
+  // Message read by client and processed
+  SSL_read(client.get(), nullptr, 0);
+}
+
+// Testing: PHA extension is sent by the client and the server authenticates
+// client in the initial handshake. Server chooses to authenticate client
+// again after sending application data via |SSL_verify_client_post_handshake|.
+// Ensure can do so again after the handshake, are able to use PHA_Config data
+// to form CertificateRequest, message is being flushed to client.
+TEST(SSLTest, NonImmediatePHAWithInitialAuth) {
+  // Configure client and server to negotiate TLS 1.3 only.
+  bssl::UniquePtr<SSL_CTX> client_ctx(CreateContextWithTestCertificate(TLS_method()));
+  bssl::UniquePtr<SSL_CTX> server_ctx(
+      CreateContextWithTestCertificate(TLS_method()));
+  ASSERT_TRUE(client_ctx);
+  ASSERT_TRUE(server_ctx);
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_min_proto_version(server_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(client_ctx.get(), TLS1_3_VERSION));
+  ASSERT_TRUE(SSL_CTX_set_max_proto_version(server_ctx.get(), TLS1_3_VERSION));
+
+
+  // Custom verification functions that return ok
+  SSL_CTX_set_custom_verify(
+      server_ctx.get(), SSL_VERIFY_PEER,
+      [](SSL *ssl, uint8_t *out_alert) { return ssl_verify_ok; });
+  SSL_CTX_set_custom_verify(
+    client_ctx.get(), SSL_VERIFY_PEER,
+    [](SSL *ssl, uint8_t *out_alert) { return ssl_verify_ok; });
+
+  // Configure trust store for server.
+  SSL_CTX_set_client_CA_list(server_ctx.get(), get_test_cert_store());
+
+  // Configure server to request certificate in initial handshake
+  SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER, nullptr);
+
+  bssl::UniquePtr<SSL> client, server;
+  ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
+                                    server_ctx.get()));
+
+  // Enable sending pha_ext on client side, server may authenticate at any time
+  // after the initial handshake
+  SSL_set_post_handshake_auth(client.get(), 1);
+
+  // Start the handshake, client first flight and write. Sends the extension
+  EXPECT_TRUE(client.get()->s3->pha_enabled);
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_NONE);
+  SSL_do_handshake(client.get());
+
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_EXT_SENT);
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_NONE);
+
+  // First server flight, process client hello and send Server Hello,
+  // Certificate, CertificateVerify, CertificateRequest, ServerFinished
+  SSL_do_handshake(server.get());
+  // extension should be received, nothing pending
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_EXT_RECEIVED);
+  // should be True so CertificateRequest sent in initial message
+  EXPECT_TRUE(server.get()->s3->hs->cert_request);
+
+  // Initial handshake not over, should not work
+  EXPECT_TRUE(SSL_verify_client_post_handshake(server.get()) == 0);
+
+  // Second client flight, process server messages and send Certificate,
+  // CertificateVerify, client Finished
+  SSL_do_handshake(client.get());
+  EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_EXT_SENT);
+
+  // Second server flight, process client Certificate, CertificateVerify,
+  // and Finished
+  SSL_do_handshake(server.get());
+  EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_EXT_RECEIVED);
+
+  // Check initialization of PHA_config struct
+  EXPECT_TRUE(server.get()->s3->pha_config);
+
+  // Ensure handshake is completed
+  EXPECT_TRUE(server.get()->s3->initial_handshake_complete);
+  EXPECT_TRUE(client.get()->s3->initial_handshake_complete);
+
+  // Sending application data
+  SSL_write(server.get(), "hello", 5);
+  uint8_t msg[5];
+  SSL_read(client.get(), &msg, 5);
+  EXPECT_EQ(Bytes(msg), Bytes("hello"));
+
+  // Server decides to authenticate client again
+  // No pending messages on wire
+  EXPECT_FALSE(server.get()->s3->pending_hs_data);
+  // Puts CertificateRequest on the wire but not flushed yet
+  EXPECT_TRUE(SSL_verify_client_post_handshake(server.get()));
+  // Now pending message on wire
+  EXPECT_TRUE(server.get()->s3->pending_hs_data);
+
+  // Message gets flushed
+  SSL_write(server.get(), nullptr, 0);
+  EXPECT_FALSE(server.get()->s3->pending_hs_data);
+
+  // Message read by client and processed
+  SSL_read(client.get(), nullptr, 0);
+}
+
 // Test checks: whether PHA state is passed from SSL_CTX to SSL and
 // pha_ext is being sent by client and received by server
 TEST(SSLTest, SetPHAExtCTX) {
@@ -8879,7 +9226,8 @@ TEST(SSLTest, SetPHAExtCTX) {
   ASSERT_TRUE(CreateClientAndServer(&client, &server, client_ctx.get(),
                                     server_ctx.get()));
 
-  // State from SSL_CTX->pha_enabled should transfer to SSL->s3->pha_enabled for client
+  // State from SSL_CTX->pha_enabled should transfer to SSL->s3->pha_enabled
+  // for client
   EXPECT_EQ(client.get()->s3->pha_enabled, 1);
   EXPECT_EQ(server.get()->s3->pha_enabled, 0);
   // State only maintained in pha_enabled so far
@@ -8891,14 +9239,15 @@ TEST(SSLTest, SetPHAExtCTX) {
   EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_EXT_SENT);
   EXPECT_EQ(server.get()->s3->pha_ext, SSL_PHA_NONE);
 
-  // Sending first flight of server data (process client 1st flight, send ServerHello,
-  // Certificate, CertificateVerify, optional CertificateRequest)
+  // Sending first flight of server data (process client 1st flight, send
+  // ServerHello, Certificate, CertificateVerify, optional CertificateRequest)
   SSL_do_handshake(server.get());
   EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_EXT_SENT);
   EXPECT_EQ(server.get()->s3->pha_ext, SSL_PHA_EXT_RECEIVED);
 }
 
-// Test checks functionality with PHA when |SSL_VERIFY_POST_HANDSHAKE| is enabled
+// Test checks functionality with PHA when |SSL_VERIFY_POST_HANDSHAKE|
+// is enabled
 TEST(SSLTest, PHAMacroBehaviorEnabled) {
   // Configure client and server to negotiate TLS 1.3 only.
   bssl::UniquePtr<SSL_CTX> client_ctx(SSL_CTX_new(TLS_method()));
@@ -8945,13 +9294,15 @@ TEST(SSLTest, PHAMacroBehaviorEnabled) {
 
   // First server read and flight
   SSL_do_handshake(server.get());
-  // After server processes client hello, since |SSL_VERIFY_POST_HANDSHAKE| is set, server
-  // should have cert_request be false and pha_ext should indicate request is pending instead of
-  // |SSL_PHA_EXT_RECEIVED|
+
+  // After server processes client hello, since |SSL_VERIFY_POST_HANDSHAKE|
+  // is set, server should have cert_request be false and pha_ext should
+  // indicate request is pending instead of |SSL_PHA_EXT_RECEIVED|
   EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_EXT_SENT);
   EXPECT_EQ(server.get()->s3->pha_ext, SSL_PHA_REQUEST_PENDING);
 
-  // Should be false so server doesn't send CertificateRequest in initial handshake
+  // Should be false so server doesn't send CertificateRequest in initial
+  // handshake
   EXPECT_FALSE(server.get()->s3->hs->cert_request);
 }
 
@@ -9001,8 +9352,10 @@ TEST(SSLTest, PHAMacroBehaviorDisabled) {
 
   // First server read and flight
   SSL_do_handshake(server.get());
-  // After server processes client hello, since SSL_VERIFY_POST_HANDSHAKE is NOT set, server
-  // should have cert_request be true and pha_ext should indicate SSL_PHA_EXT_RECEIVED
+
+  // After server processes client hello, since SSL_VERIFY_POST_HANDSHAKE is
+  // NOT set, server should have cert_request be true and pha_ext should
+  // indicate SSL_PHA_EXT_RECEIVED
   EXPECT_EQ(client.get()->s3->pha_ext, SSL_PHA_EXT_SENT);
   EXPECT_EQ(server.get()->s3->pha_ext, SSL_PHA_EXT_RECEIVED);
 

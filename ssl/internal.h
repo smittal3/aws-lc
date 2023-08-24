@@ -1393,6 +1393,16 @@ UniquePtr<STACK_OF(CRYPTO_BUFFER)> ssl_parse_client_CA_list(SSL *ssl,
                                                             uint8_t *out_alert,
                                                             CBS *cbs);
 
+// ssl_get_client_CAs_pha creates a deep copy of the configured CA list and
+// returns a pointer to it. Otherwise, returns NULL.
+OPENSSL_EXPORT STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs_pha(const SSL_HANDSHAKE *hs);
+
+// ssl_add_client_CA_list_pha adds the configured CA list to |cbb| in the format
+// used by a TLS CertificateRequest message. It returns true on success and
+// false on error. This is used in the PHA case where the handshake object may
+// not be available.
+bool ssl_add_client_CA_list_pha(SSL *ssl, CBB *cbb);
+
 // ssl_has_client_CAs returns there are configured CAs.
 bool ssl_has_client_CAs(const SSL_CONFIG *cfg);
 
@@ -1745,6 +1755,7 @@ enum tls13_server_hs_state_t {
   state13_read_client_finished,
   state13_send_new_session_ticket,
   state13_done,
+  state13_send_certificate_request_pha
 };
 
 // handback_t lists the points in the state machine where a handback can occur.
@@ -2189,6 +2200,10 @@ const char *tls13_server_handshake_state(SSL_HANDSHAKE *hs);
 // |SSL_KEY_UPDATE_NOT_REQUESTED|.
 bool tls13_add_key_update(SSL *ssl, int update_requested);
 
+// tls13_add_certificate_request queues a CertificateRequest message on |ssl|. Returns
+// true on success and false on failure.
+bool tls13_add_certificate_request(SSL *ssl);
+
 // tls13_post_handshake processes a post-handshake message. It returns true on
 // success and false on failure.
 bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg);
@@ -2429,6 +2444,16 @@ bool tls12_add_verify_sigalgs(const SSL_HANDSHAKE *hs, CBB *out);
 bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
                              uint16_t sigalg);
 
+// tls13_get_verify_sigalgs_pha calls |tls12_get_verify_sigalgs| for the given
+// handshake object. It takes the sigalgs returned, creates a deep copy, and
+// returns the copy. These are used for PHA where the handshake object
+// is destroyed after the end of the handshake.
+OPENSSL_EXPORT Array<uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs);
+
+// tls13_add_verify_sigalgs_pha adds the signature algorithms acceptable for the
+// peer signature to |out|. It returns true on success and false on error. This
+// function is used for PHA where handshake object may not be available
+bool tls13_add_verify_sigalgs_pha(SSL *ssl, CBB *out);
 
 // Underdocumented functions.
 //
@@ -2737,6 +2762,22 @@ enum ssl_ech_status_t {
   ssl_ech_rejected,
 };
 
+// PHA_Config contains configuration bits for post handshake authentication.
+// The struct is initialized if PHA is enabled by the client and shed
+// at the end of the connection
+struct PHA_Config {
+  static constexpr bool kAllowUniquePtr = true;
+  // Holds negotiated sigalgs from the handshake for CertificateRequest message
+  Array<uint16_t> verify_sigalgs;
+
+  // Holds CA's accepted by the server for CertificateRequest message
+  const STACK_OF(CRYPTO_BUFFER) *names;
+
+  // Holds original transcript hash for CertificateVerify from client response
+  uint8_t handshake_transcript_hash[EVP_MAX_MD_SIZE];
+  size_t handshake_transcript_hash_len;
+};
+
 #define SSL3_SEND_ALERT_SIZE 2
 #define TLS_SEQ_NUM_SIZE 8
 #define SSL3_CHANNEL_ID_SIZE 64
@@ -2790,6 +2831,8 @@ struct SSL3_STATE {
   // read_error, if |read_shutdown| is |ssl_shutdown_error|, is the error for
   // the receive half of the connection.
   UniquePtr<ERR_SAVE_STATE> read_error;
+
+  UniquePtr<PHA_Config> pha_config;
 
   int total_renegotiations = 0;
 
@@ -3090,6 +3133,7 @@ struct ALPSConfig {
   Array<uint8_t> protocol;
   Array<uint8_t> settings;
 };
+
 
 // SSL_CONFIG contains configuration bits that can be shed after the handshake
 // completes.  Objects of this type are not shared; they are unique to a

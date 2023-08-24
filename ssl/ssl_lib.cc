@@ -940,13 +940,59 @@ void SSL_set_post_handshake_auth(SSL *ssl, int val) {
   ssl->s3->pha_enabled = val;
 }
 
-// Initiates CertificateRequest to authenticate client post handshake
-// TO-DO
+// SSL_verify_client_post_handshake puts a CertificateRequest on the wire
+// to authenticate the client post handshake. The request is not flushed until
+// the next server write. Returns 1 on success and 0 otherwise.
+
+// TO-DO: SHOULD WE BE FLUSHING IN THIS CASE? SINCE THIS IS AFTER THE HANDSHAKE
+// TO-DO: Verify what error messages should be returned
 int SSL_verify_client_post_handshake(SSL *ssl) {
-  return 0;
+  ssl_reset_error_state(ssl);
+
+  if (ssl->do_handshake == NULL) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_UNINITIALIZED);
+    return 0;
+  }
+
+  if (ssl->ctx->quic_method != nullptr) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+    return 0;
+  }
+
+  if (!ssl->s3->initial_handshake_complete) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_HANDSHAKE_NOT_COMPLETE);
+    return 0;
+  }
+
+  if (ssl_protocol_version(ssl) < TLS1_3_VERSION) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_WRONG_SSL_VERSION);
+    return 0;
+  }
+
+  if (ssl->s3->pha_ext == SSL_PHA_NONE) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+    return 0;
+  }
+
+  // State should indicate Extension is received by server. State could be
+  // |SSL_PHA_REQUEST_PENDING| if server requested client auth immediately after
+  // the initial handshake but this case is handled in the state machine itself.
+  // Otherwise, state should either be |SSL_PHA_EXT_RECEIVED| or
+  // |SSL_PHA_REQUESTED| in the case of a previous message already being sent
+  if(ssl->s3->pha_ext != SSL_PHA_EXT_RECEIVED && ssl->s3->pha_ext != SSL_PHA_REQUESTED) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+    return 0;
+  }
+
+  // Construct and put the certificate request on the wire
+  if(!tls13_add_certificate_request(ssl)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return 0;
+  }
+
+  ssl->s3->pha_ext = SSL_PHA_REQUESTED;
+  return 1;
 }
-
-
 
 int SSL_process_quic_post_handshake(SSL *ssl) {
   ssl_reset_error_state(ssl);

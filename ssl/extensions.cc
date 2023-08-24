@@ -470,6 +470,8 @@ static const uint16_t kSignSignatureAlgorithms[] = {
     SSL_SIGN_RSA_PKCS1_SHA1,
 };
 
+
+
 static Span<const uint16_t> tls12_get_verify_sigalgs(const SSL_HANDSHAKE *hs) {
   if (hs->config->verify_sigalgs.empty()) {
     return Span<const uint16_t>(kVerifySignatureAlgorithms);
@@ -497,6 +499,25 @@ bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
   OPENSSL_PUT_ERROR(SSL, SSL_R_WRONG_SIGNATURE_TYPE);
   *out_alert = SSL_AD_ILLEGAL_PARAMETER;
   return false;
+}
+
+Array<uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs) {
+  Span<const uint16_t> sigalgs = tls12_get_verify_sigalgs(hs);
+
+  Array<uint16_t> copySigalgs;
+  copySigalgs.CopyFrom(sigalgs);
+  return copySigalgs;
+}
+
+bool tls13_add_verify_sigalgs_pha(SSL *ssl, CBB *out) {
+  Span<const uint16_t> sigalgs = ssl->s3->pha_config->verify_sigalgs;
+
+  for (uint16_t sigalg : sigalgs) {
+    if (!CBB_add_u16(out, sigalg)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // tls_extension represents a TLS extension that is handled internally.

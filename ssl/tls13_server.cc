@@ -213,6 +213,43 @@ static bool add_new_session_tickets(SSL_HANDSHAKE *hs, bool *out_sent_tickets) {
   return true;
 }
 
+bool tls13_add_certificate_request(SSL *ssl) {
+  ScopedCBB cbb;
+  CBB body, context, extensions, sigalg_contents, sigalgs_cbb, CA_contents;
+  uint8_t request_context[16];
+  RAND_bytes(request_context, sizeof(request_context));
+
+  if (!ssl->method->init_message(ssl, cbb.get(), &body, SSL3_MT_CERTIFICATE_REQUEST) ||
+      // Random context to prevent replay attacks
+      !CBB_add_u16_length_prefixed(&body, &context) ||
+      !CBB_add_bytes(&context, request_context, sizeof(request_context)) ||
+      // add sigalgs extension
+      !CBB_add_u16_length_prefixed(&body, &extensions) ||
+      !CBB_add_u16(&extensions, TLSEXT_TYPE_signature_algorithms) ||
+      !CBB_add_u16_length_prefixed(&extensions,&sigalg_contents) ||
+      !CBB_add_u16_length_prefixed(&sigalg_contents, &sigalgs_cbb) ||
+      !tls13_add_verify_sigalgs_pha(ssl, &sigalgs_cbb)) {
+    return false;
+  }
+
+  // Add CA's if available
+  if (ssl->s3->pha_config->names) {
+    if (!CBB_add_u16(&extensions, TLSEXT_TYPE_certificate_authorities) ||
+        !CBB_add_u16_length_prefixed(&extensions, &CA_contents) ||
+        !ssl_add_client_CA_list_pha(ssl, &CA_contents) ||
+        !CBB_flush(&extensions)) {
+      return false;
+    }
+  }
+
+  // buffer gets flushed automatically in below call
+  if (!ssl_add_message_cbb(ssl, cbb.get())) {
+    return false;
+  }
+
+ return true;
+}
+
 static enum ssl_hs_wait_t do_select_parameters(SSL_HANDSHAKE *hs) {
   // At this point, most ClientHello extensions have already been processed by
   // the common handshake logic. Resolve the remaining non-PSK parameters.
@@ -824,27 +861,26 @@ static enum ssl_hs_wait_t do_send_server_hello(SSL_HANDSHAKE *hs) {
     return ssl_hs_error;
   }
 
+  if (!ssl->s3->session_reused) {
+    // Determine whether to request a client certificate.
+    // hs->cert_request is True if only SSL_VERIFY_PEER is set, otherwise false
+    hs->cert_request = (hs->config->verify_mode & SSL_VERIFY_PEER) &&
+                       !(hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE);
 
-    if (!ssl->s3->session_reused) {
-      // Determine whether to request a client certificate.
-      // hs->cert_request is True if only SSL_VERIFY_PEER is set, otherwise false
-      hs->cert_request = (hs->config->verify_mode & SSL_VERIFY_PEER) &&
-                         !(hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE);
-
-      // Client authentication requested but immediately after initial handshake
-      // Then both |SSL_VERIFY_POST_HANDSHAKE| and |SSL_VERIFY_PEER| should be set
-      // and the server should have received the PHA extension from the client
-      if((hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE) &&
-          (hs->config->verify_mode & SSL_VERIFY_PEER) && ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED) {
-        ssl->s3->pha_ext = SSL_PHA_REQUEST_PENDING;
-      }
-
-      // Only request a certificate if Channel ID isn't negotiated.
-      if ((hs->config->verify_mode & SSL_VERIFY_PEER_IF_NO_OBC) &&
-          hs->channel_id_negotiated) {
-        hs->cert_request = false;
-      }
+    // Client authentication requested but immediately after initial handshake
+    // Then both |SSL_VERIFY_POST_HANDSHAKE| and |SSL_VERIFY_PEER| should be set
+    // and the server should have received the PHA extension from the client
+    if((hs->config->verify_mode & SSL_VERIFY_POST_HANDSHAKE) &&
+        (hs->config->verify_mode & SSL_VERIFY_PEER) && ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED) {
+      ssl->s3->pha_ext = SSL_PHA_REQUEST_PENDING;
     }
+
+    // Only request a certificate if Channel ID isn't negotiated.
+    if ((hs->config->verify_mode & SSL_VERIFY_PEER_IF_NO_OBC) &&
+        hs->channel_id_negotiated) {
+      hs->cert_request = false;
+    }
+  }
 
   // Send a CertificateRequest, if necessary.
   if (hs->cert_request) {
@@ -1214,15 +1250,63 @@ static enum ssl_hs_wait_t do_read_client_finished(SSL_HANDSHAKE *hs) {
         !tls13_derive_resumption_secret(hs)) {
       return ssl_hs_error;
     }
+  }
+  // Process PHA if applicable
+  hs->tls13_state = state13_send_certificate_request_pha;
+  ssl->method->next_message(ssl);
+  return ssl_hs_ok;
+}
 
+
+// |do_certificate_request_pha| processes PHA when server request client
+// authentication immediately after the initial handshake.
+static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
+  SSL *const ssl = hs->ssl;
+
+  // PHA is enabled, store state needed for it
+  if(ssl->s3->pha_ext == SSL_PHA_EXT_RECEIVED || ssl->s3->pha_ext == SSL_PHA_REQUEST_PENDING) {
+    // Initialize PHA_Config struct
+    ssl->s3->pha_config = MakeUnique<PHA_Config>();
+    if(ssl->s3->pha_config == nullptr) {
+      return ssl_hs_error;
+    }
+
+    // Get the sigalgs
+    ssl->s3->pha_config->verify_sigalgs = tls13_get_verify_sigalgs_pha(hs);
+
+    // Store the CAs if available
+    if(ssl_has_client_CAs(hs->config)) {
+      // Note, this value may be NULL
+      ssl->s3->pha_config->names = ssl_get_client_CAs_pha(hs);
+    }
+  }
+
+  // Cert request wasn't sent in initial handshake but client auth is requested,
+  // otherwise skip this step
+  if(!hs->cert_request && ssl->s3->pha_ext == SSL_PHA_REQUEST_PENDING) {
+
+    // Put the CertificateRequest on wire, we don't flush until the next server write
+    if(!tls13_add_certificate_request(ssl)) {
+      return ssl_hs_error;
+    }
+    // Transition pha_ext state to indicate CertificateRequest has been sent
+    ssl->s3->pha_ext = SSL_PHA_REQUESTED;
+  }
+
+  // In TLS 1.3, the CertificateRequest (in PHA) isn't flushed until the server
+  // performs a write, to prevent a non-reading client from causing the server
+  // to hang in the case of a small server write buffer. Consumers which don't '
+  // write data to the client will need to do a zero-byte write if they wish to
+  // flush the request.
+
+  // Transition state
+  if (!ssl->s3->early_data_accepted) {
     // We send post-handshake tickets as part of the handshake in 1-RTT.
     hs->tls13_state = state13_send_new_session_ticket;
   } else {
-    // We already sent half-RTT tickets.
     hs->tls13_state = state13_done;
   }
 
-  ssl->method->next_message(ssl);
   return ssl_hs_ok;
 }
 
@@ -1295,6 +1379,9 @@ enum ssl_hs_wait_t tls13_server_handshake(SSL_HANDSHAKE *hs) {
       case state13_read_client_finished:
         ret = do_read_client_finished(hs);
         break;
+      case state13_send_certificate_request_pha:
+        ret = do_certificate_request_pha(hs);
+        break;
       case state13_send_new_session_ticket:
         ret = do_send_new_session_ticket(hs);
         break;
@@ -1349,6 +1436,8 @@ const char *tls13_server_handshake_state(SSL_HANDSHAKE *hs) {
       return "TLS 1.3 server read_channel_id";
     case state13_read_client_finished:
       return "TLS 1.3 server read_client_finished";
+    case state13_send_certificate_request_pha:
+      return "TLS 1.3 server send_certificate_request_pha";
     case state13_send_new_session_ticket:
       return "TLS 1.3 server send_new_session_ticket";
     case state13_done:
