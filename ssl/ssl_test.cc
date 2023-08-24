@@ -8992,7 +8992,7 @@ TEST(SSLTest, ImmediatePHA) {
   EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_REQUESTED);
 
   // Check initialization of PHA_config struct
-  EXPECT_TRUE(server.get()->s3->pha_config != nullptr);
+  EXPECT_TRUE(server.get()->s3->pha_config);
   // Get deep copy of verify_sigalgs made for PHA
   Array<uint16_t>& copy_sigalgs = server.get()->s3->pha_config->verify_sigalgs;
   const STACK_OF(CRYPTO_BUFFER) *names_copy = server.get()->s3->pha_config->names;
@@ -9118,7 +9118,7 @@ TEST(SSLTest, NonImmediatePHAWithoutInitialAuth) {
   EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_EXT_RECEIVED);
 
   // Check initialization of PHA_config struct
-  EXPECT_TRUE(server.get()->s3->pha_config != nullptr);
+  EXPECT_TRUE(server.get()->s3->pha_config);
 
   // Ensure handshake is completed
   EXPECT_TRUE(server.get()->s3->initial_handshake_complete);
@@ -9217,7 +9217,7 @@ TEST(SSLTest, NonImmediatePHAWithInitialAuth) {
   EXPECT_TRUE(server.get()->s3->pha_ext == SSL_PHA_EXT_RECEIVED);
 
   // Check initialization of PHA_config struct
-  EXPECT_TRUE(server.get()->s3->pha_config != nullptr);
+  EXPECT_TRUE(server.get()->s3->pha_config);
 
   // Ensure handshake is completed
   EXPECT_TRUE(server.get()->s3->initial_handshake_complete);

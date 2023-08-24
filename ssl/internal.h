@@ -2228,7 +2228,7 @@ const char *tls13_server_handshake_state(SSL_HANDSHAKE *hs);
 // |SSL_KEY_UPDATE_NOT_REQUESTED|.
 bool tls13_add_key_update(SSL *ssl, int update_requested);
 
-// add_certificate_request queues a CertificateRequest message on |ssl|. Returns
+// tls13_add_certificate_request queues a CertificateRequest message on |ssl|. Returns
 // true on success and false on failure.
 bool tls13_add_certificate_request(SSL *ssl);
 
@@ -2520,7 +2520,8 @@ bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
 
 // tls13_get_verify_sigalgs_pha calls |tls12_get_verify_sigalgs| for the given
 // handshake object. It takes the sigalgs returned, creates a deep copy, and
-// returns the copy. These are used for PHA .
+// returns the copy. These are used for PHA where the handshake object
+// is destroyed after the end of the handshake.
 OPENSSL_EXPORT Array<uint16_t> tls13_get_verify_sigalgs_pha(const SSL_HANDSHAKE *hs);
 
 // tls13_add_verify_sigalgs_pha adds the signature algorithms acceptable for the
@@ -2840,6 +2841,7 @@ enum ssl_ech_status_t {
 // at the end of the connection
 struct PHA_Config {
   static constexpr bool kAllowUniquePtr = true;
+
   // verify_sigalgs holds negotiated sigalgs from the handshake for
   // the CertificateRequest message
   Array<uint16_t> verify_sigalgs;

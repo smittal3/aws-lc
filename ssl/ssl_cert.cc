@@ -747,17 +747,20 @@ UniquePtr<STACK_OF(CRYPTO_BUFFER)> ssl_parse_client_CA_list(SSL *ssl,
 }
 
 STACK_OF(CRYPTO_BUFFER) * ssl_get_client_CAs_pha(const SSL_HANDSHAKE *hs) {
-  STACK_OF(CRYPTO_BUFFER) *names = hs->config->client_CA.get();
-  if (names == NULL) {
+  STACK_OF(CRYPTO_BUFFER) *names = nullptr;
+  if(hs->config->client_CA) {
+    names = hs->config->client_CA.get();
+  } else if(hs->ssl->ctx->client_CA) {
     names = hs->ssl->ctx->client_CA.get();
   }
-  // Shouldn't be null since ssl_has_client_CAs called before to check
-  if (names == NULL) {
+
+  // Shouldn't be null since ssl_has_client_CAs called before in
+  // do_certificate_request_pha to check
+  if (names == nullptr) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
     return nullptr;
   }
 
-  // Make a deep copy otherwise
   STACK_OF(CRYPTO_BUFFER) *copy = sk_CRYPTO_BUFFER_deep_copy(
       names, buffer_up_ref, CRYPTO_BUFFER_free);
   return copy;
