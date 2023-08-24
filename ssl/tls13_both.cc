@@ -104,11 +104,7 @@ bool tls13_get_cert_verify_signature_input(
   return tls13_get_cert_verify_signature_input_helper(hs->transcript, out, cert_verify_context);
 }
 
-// tls13_get_cert_verify_signature_input_pha generates message to be signed for
-// TLS 1.3's CertificateVerify message. It sets |*out| to a newly allocated
-// buffer containing the result.
-static bool tls13_get_cert_verify_signature_input_pha(SSL *ssl, Array<uint8_t> *out) {
-  assert(!ssl->server);
+bool tls13_get_cert_verify_signature_input_pha(SSL *ssl, Array<uint8_t> *out) {
   return tls13_get_cert_verify_signature_input_helper(ssl->s3->pha_config->transcript, out, ssl_cert_verify_client);
 }
 
@@ -433,35 +429,6 @@ bool tls13_add_certificate_pha(SSL *ssl) {
       !CBB_add_u16_length_prefixed(&certificate_list, &extensions)) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
     return false;
-  }
-
-  if (ssl->s3->pha_config->scts_requested && cert->signed_cert_timestamp_list != nullptr) {
-    CBB contents;
-    if (!CBB_add_u16(&extensions, TLSEXT_TYPE_certificate_timestamp) ||
-        !CBB_add_u16_length_prefixed(&extensions, &contents) ||
-        !CBB_add_bytes(
-            &contents,
-            CRYPTO_BUFFER_data(cert->signed_cert_timestamp_list.get()),
-            CRYPTO_BUFFER_len(cert->signed_cert_timestamp_list.get())) ||
-        !CBB_flush(&extensions)) {
-      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-      return false;
-    }
-  }
-
-  if (ssl->s3->pha_config->ocsp_stapling_requested && cert->ocsp_response != NULL) {
-    CBB contents, ocsp_response;
-    if (!CBB_add_u16(&extensions, TLSEXT_TYPE_status_request) ||
-        !CBB_add_u16_length_prefixed(&extensions, &contents) ||
-        !CBB_add_u8(&contents, TLSEXT_STATUSTYPE_ocsp) ||
-        !CBB_add_u24_length_prefixed(&contents, &ocsp_response) ||
-        !CBB_add_bytes(&ocsp_response,
-                       CRYPTO_BUFFER_data(cert->ocsp_response.get()),
-                       CRYPTO_BUFFER_len(cert->ocsp_response.get())) ||
-        !CBB_flush(&extensions)) {
-      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-      return false;
-    }
   }
 
   for (size_t i = 1; i < sk_CRYPTO_BUFFER_num(chain.get()); i++) {
@@ -849,6 +816,10 @@ bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg) {
 
   if (msg.type == SSL3_MT_CERTIFICATE_REQUEST && !ssl->server) {
     return tls13_process_certificate_request_pha(ssl, msg);
+  }
+
+  if(msg.type == SSL3_MT_CERTIFICATE && ssl->server) {
+    return tls13_process_client_response_pha(ssl, msg);
   }
 
   ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);

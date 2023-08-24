@@ -8928,6 +8928,11 @@ TEST(SSLTest, ImmediatePHA) {
   // handshake
   SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER | SSL_VERIFY_POST_HANDSHAKE, nullptr);
 
+  // Custom verification functions that return ok
+  SSL_CTX_set_custom_verify(
+      server_ctx.get(), SSL_VERIFY_PEER | SSL_VERIFY_POST_HANDSHAKE,
+      [](SSL *ssl, uint8_t *out_alert) { return ssl_verify_ok; });
+
   // Configure trust store for server.
   SSL_CTX_set_client_CA_list(server_ctx.get(), get_test_cert_store());
 
@@ -9049,6 +9054,12 @@ TEST(SSLTest, ImmediatePHA) {
   }
   // Check if the underlying data is different (deep copy check)
   EXPECT_TRUE(verify_sigalgs.data() != sigalgs_client_copy.data());
+
+  // Arbitrary read length, we still process full flight of pending messages
+  // SSL_read(server.get(), nullptr, 2);
+
+  // Ensure verification result is successful
+  // EXPECT_EQ(SSL_get_verify_result_pha(server.get()), X509_V_OK);
 }
 
 // Testing: when PHA extension is sent by the client and the server does not a
