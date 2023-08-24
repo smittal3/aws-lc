@@ -4523,6 +4523,8 @@ OPENSSL_EXPORT void SSL_set_post_handshake_auth(SSL *ssl, int val);
 // The |SSL_VERIFY_PEER| flag must be set; the |SSL_VERIFY_POST_HANDSHAKE|
 // flag is optional. These flags can be set via |SSL_CTX_set_verify| for
 // |SSL_CTX| or |SSL_set_verify| for |SSL|.
+// A custom verification callback function must be set via
+// |SSL_CTX_set_custom_verify| before the connection is established. 
 OPENSSL_EXPORT int SSL_verify_client_post_handshake(SSL *ssl);
 
 

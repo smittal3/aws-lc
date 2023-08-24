@@ -49,6 +49,7 @@ enum client_hs_state_t {
   state_send_client_certificate_verify,
   state_complete_second_flight,
   state_done,
+  state_process_pha,
 };
 
 static const uint8_t kZeroes[EVP_MAX_MD_SIZE] = {0};
@@ -889,6 +890,37 @@ static enum ssl_hs_wait_t do_send_client_certificate_verify(SSL_HANDSHAKE *hs) {
   return ssl_hs_error;
 }
 
+static enum ssl_hs_wait_t do_process_pha(SSL_HANDSHAKE *hs) {
+  SSL *const ssl = hs->ssl;
+
+  if(ssl->s3->pha_ext == SSL_PHA_EXT_SENT && ssl->s3->pha_enabled) {
+
+    ssl->s3->pha_config = MakeUnique<PHA_Config>();
+    if (ssl->s3->pha_config == nullptr) {
+      return ssl_hs_error;
+    }
+
+    if(hs->config->cert != nullptr) {
+      ssl->s3->pha_config->client_cert = ssl_cert_dup(hs->config->cert.get());
+    }
+
+    ssl->s3->pha_config->scts_requested = hs->scts_requested;
+    ssl->s3->pha_config->ocsp_stapling_requested = hs->ocsp_stapling_requested;
+
+    ssl->s3->pha_config->transcript = std::move(hs->transcript);
+
+    Span<uint8_t> original = hs->client_handshake_secret();
+    uint8_t *copiedData = new uint8_t[original.size()];
+    OPENSSL_memcpy(copiedData, original.data(), original.size());
+    Span<uint8_t> copiedSpan(copiedData, original.size());
+    ssl->s3->pha_config->client_handshake_secret = copiedSpan;
+  }
+
+  hs->tls13_state = state_done;
+  // flushing pending flight including client Finished
+  return ssl_hs_ok;
+}
+
 static enum ssl_hs_wait_t do_complete_second_flight(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
   hs->can_release_private_key = true;
@@ -920,9 +952,11 @@ static enum ssl_hs_wait_t do_complete_second_flight(SSL_HANDSHAKE *hs) {
     return ssl_hs_error;
   }
 
-  hs->tls13_state = state_done;
+  hs->tls13_state = state_process_pha;
   return ssl_hs_flush;
 }
+
+
 
 enum ssl_hs_wait_t tls13_client_handshake(SSL_HANDSHAKE *hs) {
   while (hs->tls13_state != state_done) {
@@ -971,6 +1005,9 @@ enum ssl_hs_wait_t tls13_client_handshake(SSL_HANDSHAKE *hs) {
         break;
       case state_complete_second_flight:
         ret = do_complete_second_flight(hs);
+        break;
+      case state_process_pha:
+        ret = do_process_pha(hs);
         break;
       case state_done:
         ret = ssl_hs_ok;
@@ -1021,6 +1058,8 @@ const char *tls13_client_handshake_state(SSL_HANDSHAKE *hs) {
       return "TLS 1.3 client send_client_certificate_verify";
     case state_complete_second_flight:
       return "TLS 1.3 client complete_second_flight";
+    case state_process_pha:
+      return "TLS 1.3 state_process_pha";
     case state_done:
       return "TLS 1.3 client done";
   }
@@ -1048,6 +1087,131 @@ bool tls13_process_new_session_ticket(SSL *ssl, const SSLMessage &msg) {
     // |new_session_cb|'s return value signals that it took ownership.
     session.release();
   }
+
+  return true;
+}
+static bool tls13_parse_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
+  assert(!ssl->server);
+  SSLExtension sigalgs(TLSEXT_TYPE_signature_algorithms),
+      ca(TLSEXT_TYPE_certificate_authorities);
+  CBS body = msg.body, context, extensions, supported_signature_algorithms;
+  uint8_t alert = SSL_AD_DECODE_ERROR;
+  if (!CBS_get_u16_length_prefixed(&body, &context) ||
+      // The request context should not be empty.
+      CBS_len(&context) == 0 ||
+      !CBS_get_u16_length_prefixed(&body, &extensions) ||  //
+      CBS_len(&body) != 0 ||
+      !ssl_parse_extensions(&extensions, &alert, {&sigalgs, &ca},
+                            /*ignore_unknown=*/true) ||
+      !sigalgs.present ||
+      !CBS_get_u16_length_prefixed(&sigalgs.data,
+                                   &supported_signature_algorithms) ||
+      !tls13_parse_peer_sigalgs_pha(ssl, &supported_signature_algorithms)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
+    OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
+    return false;
+  }
+  uint8_t req_context[16];
+  CBS_copy_bytes(&context, req_context, CBS_len(&context));
+  OPENSSL_memcpy(ssl->s3->pha_config->request_context, req_context, sizeof(req_context));
+  if (ca.present) {
+    ssl->s3->pha_config->names =
+        ssl_parse_client_CA_list(ssl, &alert, &ca.data).get();
+    if (!ssl->s3->pha_config->names) {
+      ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
+      return false;
+    }
+  }
+  return true;
+}
+
+// tls13_add_empty_certificate creates a certificate message with an
+// empty certificate list for the client. This is used in post handshake
+// authentication and the request context is not empty as is the case in a
+// normal handshake
+static bool tls13_add_empty_certificate(SSL *ssl) {
+  assert(!ssl->server);
+  ScopedCBB cbb;
+  CBB *body, body_storage, context;
+
+  body = &body_storage;
+  if (!ssl->method->init_message(ssl, cbb.get(), body, SSL3_MT_CERTIFICATE)) {
+    return false;
+  }
+
+  // Certificate context should be request context from CertificateRequest
+  if (!CBB_add_u16_length_prefixed(body, &context) ||
+      !CBB_add_bytes(&context, ssl->s3->pha_config->request_context,
+                     sizeof(ssl->s3->pha_config->request_context)) ||
+      // Empty certificate list
+      !CBB_add_u8(body, 0)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return false;
+  }
+
+  return ssl_add_message_cbb(ssl, cbb.get());
+}
+
+bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg) {
+  assert(!ssl->server);
+  if(!ssl->s3->pha_enabled || ssl->s3->pha_ext != SSL_PHA_EXT_SENT) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
+    OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
+    return false;
+  }
+  PHA_Config *data = ssl->s3->pha_config.get();
+
+  // If all required state is available, respond with Certificate,
+  // CertificateVerify, and Finished. Otherwise, respond with empty
+  // Certificate message, and Finished
+  if(data != nullptr && data->client_cert.get() != nullptr) {
+    if(!tls13_parse_certificate_request_pha(ssl, msg)) {
+      return false;
+    }
+
+    // Call cert_cb to update the certificate if defined
+    if (ssl->s3->pha_config->client_cert->cert_cb != nullptr) {
+      int rv = ssl->s3->pha_config->client_cert->cert_cb(ssl, ssl->s3->pha_config->client_cert->cert_cb_arg);
+      if (rv <= 0) {
+        ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+        OPENSSL_PUT_ERROR(SSL, SSL_R_CERT_CB_ERROR);
+        return false;
+      }
+    }
+
+    if(!ssl_on_certificate_selected_pha(ssl) || !tls13_add_certificate_pha(ssl)) {
+      return false;
+    }
+
+    ssl->s3->pha_config->transcript.Update(msg.raw);
+    // CertificateVerify
+    enum ssl_private_key_result_t result = tls13_add_certificate_verify_pha(ssl);
+    switch (result) {
+      case ssl_private_key_failure:
+        return false;
+      case ssl_private_key_success:
+        break;
+      case ssl_private_key_retry:
+        enum ssl_private_key_result_t res = tls13_add_certificate_verify_pha(ssl);
+        if(res != ssl_private_key_success) {
+          return false;
+        }
+        break;
+    }
+
+  } else {
+    // Construct Certificate Message with empty certificate list
+    if(!tls13_add_empty_certificate(ssl)) {
+      return false;
+    }
+  }
+
+  // Construct Finished, same for both cases
+  if(!tls13_add_finished_pha(ssl)) {
+    return false;
+  }
+
+  ssl->method->flush_flight(ssl);
 
   return true;
 }

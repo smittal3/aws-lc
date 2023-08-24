@@ -48,8 +48,12 @@ const uint8_t kTLS13DowngradeRandom[8] = {0x44, 0x4f, 0x57, 0x4e,
 const uint8_t kJDK11DowngradeRandom[8] = {0xed, 0xbf, 0xb4, 0xa8,
                                           0xc2, 0x47, 0x10, 0xff};
 
-bool tls13_get_cert_verify_signature_input(
-    SSL_HANDSHAKE *hs, Array<uint8_t> *out,
+// tls13_get_cert_verify_signature_input_helper abstracts functionality
+// from |tls13_get_cert_verify_signature_input| to accommodate the PHA
+// case where |transcript| is stored in a different location.
+static bool tls13_get_cert_verify_signature_input_helper(
+    SSLTranscript &transcript,
+    Array<uint8_t> *out,
     enum ssl_cert_verify_context_t cert_verify_context) {
   ScopedCBB cbb;
   if (!CBB_init(cbb.get(), 64 + 33 + 1 + 2 * EVP_MAX_MD_SIZE)) {
@@ -85,13 +89,23 @@ bool tls13_get_cert_verify_signature_input(
 
   uint8_t context_hash[EVP_MAX_MD_SIZE];
   size_t context_hash_len;
-  if (!hs->transcript.GetHash(context_hash, &context_hash_len) ||
+  if (!transcript.GetHash(context_hash, &context_hash_len) ||
       !CBB_add_bytes(cbb.get(), context_hash, context_hash_len) ||
       !CBBFinishArray(cbb.get(), out)) {
     return false;
   }
 
   return true;
+}
+
+bool tls13_get_cert_verify_signature_input(
+    SSL_HANDSHAKE *hs, Array<uint8_t> *out,
+    enum ssl_cert_verify_context_t cert_verify_context) {
+  return tls13_get_cert_verify_signature_input_helper(hs->transcript, out, cert_verify_context);
+}
+
+bool tls13_get_cert_verify_signature_input_pha(SSL *ssl, Array<uint8_t> *out) {
+  return tls13_get_cert_verify_signature_input_helper(ssl->s3->pha_config->transcript, out, ssl_cert_verify_client);
 }
 
 bool tls13_process_certificate(SSL_HANDSHAKE *hs, const SSLMessage &msg,
@@ -384,6 +398,54 @@ bool tls13_process_finished(SSL_HANDSHAKE *hs, const SSLMessage &msg,
   return true;
 }
 
+bool tls13_add_certificate_pha(SSL *ssl) {
+  assert(!ssl->server);
+  CERT *const cert = ssl->s3->pha_config->client_cert.get();
+
+  ScopedCBB cbb;
+  CBB *body, body_storage, certificate_list, context;
+
+  body = &body_storage;
+  if (!ssl->method->init_message(ssl, cbb.get(), body, SSL3_MT_CERTIFICATE)) {
+    return false;
+  }
+
+  // Certificate context should be request context from CertificateRequest
+  if (!CBB_add_u16_length_prefixed(body, &context) ||
+      !CBB_add_bytes(&context, ssl->s3->pha_config->request_context,
+                     sizeof(ssl->s3->pha_config->request_context)) ||
+      !CBB_add_u24_length_prefixed(body, &certificate_list)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return false;
+  }
+
+  UniquePtr<STACK_OF(CRYPTO_BUFFER)> &chain =
+      cert->cert_private_keys[cert->cert_private_key_idx].chain;
+  CRYPTO_BUFFER *leaf_buf = sk_CRYPTO_BUFFER_value(chain.get(), 0);
+  CBB leaf, extensions;
+  if (!CBB_add_u24_length_prefixed(&certificate_list, &leaf) ||
+      !CBB_add_bytes(&leaf, CRYPTO_BUFFER_data(leaf_buf),
+                     CRYPTO_BUFFER_len(leaf_buf)) ||
+      !CBB_add_u16_length_prefixed(&certificate_list, &extensions)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return false;
+  }
+
+  for (size_t i = 1; i < sk_CRYPTO_BUFFER_num(chain.get()); i++) {
+    CRYPTO_BUFFER *cert_buf = sk_CRYPTO_BUFFER_value(chain.get(), i);
+    CBB child;
+    if (!CBB_add_u24_length_prefixed(&certificate_list, &child) ||
+        !CBB_add_bytes(&child, CRYPTO_BUFFER_data(cert_buf),
+                       CRYPTO_BUFFER_len(cert_buf)) ||
+        !CBB_add_u16(&certificate_list, 0 /* no extensions */)) {
+      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+      return false;
+    }
+  }
+
+  return ssl_add_message_cbb(ssl, cbb.get());
+}
+
 bool tls13_add_certificate(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
   CERT *const cert = hs->config->cert.get();
@@ -550,6 +612,53 @@ bool tls13_add_certificate(SSL_HANDSHAKE *hs) {
   return true;
 }
 
+enum ssl_private_key_result_t tls13_add_certificate_verify_pha(SSL *ssl) {
+  assert(!ssl->server);
+  uint16_t signature_algorithm;
+  if (!tls13_choose_signature_algorithm_pha(ssl, &signature_algorithm)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_HANDSHAKE_FAILURE);
+    return ssl_private_key_failure;
+  }
+
+  ScopedCBB cbb;
+  CBB body;
+  if (!ssl->method->init_message(ssl, cbb.get(), &body,
+                                 SSL3_MT_CERTIFICATE_VERIFY) ||
+      !CBB_add_u16(&body, signature_algorithm)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return ssl_private_key_failure;
+  }
+
+  CBB child;
+  const size_t max_sig_len = EVP_PKEY_size(ssl->s3->pha_config->client_pubkey.get());
+  uint8_t *sig;
+  size_t sig_len;
+  if (!CBB_add_u16_length_prefixed(&body, &child) ||
+      !CBB_reserve(&child, &sig, max_sig_len)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+    return ssl_private_key_failure;
+  }
+
+  Array<uint8_t> msg;
+  if (!tls13_get_cert_verify_signature_input_pha(ssl, &msg)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+    return ssl_private_key_failure;
+  }
+
+  enum ssl_private_key_result_t sign_result = ssl_private_key_sign_pha(
+      ssl, sig, &sig_len, max_sig_len, signature_algorithm, msg);
+  if (sign_result != ssl_private_key_success) {
+    return sign_result;
+  }
+
+  if (!CBB_did_write(&child, sig_len) ||
+      !ssl_add_message_cbb(ssl, cbb.get())) {
+    return ssl_private_key_failure;
+  }
+
+  return ssl_private_key_success;
+}
+
 enum ssl_private_key_result_t tls13_add_certificate_verify(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
   uint16_t signature_algorithm;
@@ -605,6 +714,28 @@ bool tls13_add_finished(SSL_HANDSHAKE *hs) {
   uint8_t verify_data[EVP_MAX_MD_SIZE];
 
   if (!tls13_finished_mac(hs, verify_data, &verify_data_len, ssl->server)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+    OPENSSL_PUT_ERROR(SSL, SSL_R_DIGEST_CHECK_FAILED);
+    return false;
+  }
+
+  ScopedCBB cbb;
+  CBB body;
+  if (!ssl->method->init_message(ssl, cbb.get(), &body, SSL3_MT_FINISHED) ||
+      !CBB_add_bytes(&body, verify_data, verify_data_len) ||
+      !ssl_add_message_cbb(ssl, cbb.get())) {
+    return false;
+  }
+
+  return true;
+}
+
+bool tls13_add_finished_pha(SSL *ssl) {
+  size_t verify_data_len;
+  uint8_t verify_data[EVP_MAX_MD_SIZE];
+
+  assert(!ssl->server);
+  if (!tls13_finished_mac_pha(ssl, verify_data, &verify_data_len)) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
     OPENSSL_PUT_ERROR(SSL, SSL_R_DIGEST_CHECK_FAILED);
     return false;
@@ -681,6 +812,14 @@ bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg) {
 
   if (msg.type == SSL3_MT_NEW_SESSION_TICKET && !ssl->server) {
     return tls13_process_new_session_ticket(ssl, msg);
+  }
+
+  if (msg.type == SSL3_MT_CERTIFICATE_REQUEST && !ssl->server) {
+    return tls13_process_certificate_request_pha(ssl, msg);
+  }
+
+  if(msg.type == SSL3_MT_CERTIFICATE && ssl->server) {
+    return tls13_process_client_response_pha(ssl, msg);
   }
 
   ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);

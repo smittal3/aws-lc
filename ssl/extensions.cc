@@ -4149,6 +4149,12 @@ bool tls1_parse_peer_sigalgs(SSL_HANDSHAKE *hs, const CBS *in_sigalgs) {
          parse_u16_array(in_sigalgs, &hs->peer_sigalgs);
 }
 
+bool tls13_parse_peer_sigalgs_pha(SSL *ssl, const CBS *in_sigalgs) {
+  assert(!ssl->server);
+  return CBS_len(in_sigalgs) != 0 &&
+         parse_u16_array(in_sigalgs, &ssl->s3->pha_config->verify_sigalgs);
+}
+
 bool tls1_get_legacy_signature_algorithm(uint16_t *out, const EVP_PKEY *pkey) {
   switch (EVP_PKEY_id(pkey)) {
     case EVP_PKEY_RSA:
@@ -4160,6 +4166,34 @@ bool tls1_get_legacy_signature_algorithm(uint16_t *out, const EVP_PKEY *pkey) {
     default:
       return false;
   }
+}
+
+bool tls13_choose_signature_algorithm_pha(SSL *ssl, uint16_t *out) {
+  assert(!ssl->server);
+  PHA_Config *config = ssl->s3->pha_config.get();
+  CERT *cert = config->client_cert.get();
+  Span<const uint16_t> peer_sigalgs = config->verify_sigalgs;
+
+  Span<const uint16_t> client_sigalgs = kSignSignatureAlgorithms;
+  if (!cert->sigalgs.empty()) {
+    client_sigalgs = cert->sigalgs;
+  }
+
+  for (uint16_t sigalg : client_sigalgs) {
+    if (!ssl_private_key_supports_signature_algorithm_pha(ssl, sigalg)) {
+      continue;
+    }
+
+    for (uint16_t peer_sigalg : peer_sigalgs) {
+      if (sigalg == peer_sigalg) {
+        *out = sigalg;
+        return true;
+      }
+    }
+  }
+
+  OPENSSL_PUT_ERROR(SSL, SSL_R_NO_COMMON_SIGNATURE_ALGORITHMS);
+  return false;
 }
 
 bool tls1_choose_signature_algorithm(SSL_HANDSHAKE *hs, uint16_t *out) {

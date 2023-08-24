@@ -1206,6 +1206,256 @@ static enum ssl_hs_wait_t do_read_client_certificate_verify(SSL_HANDSHAKE *hs) {
   return ssl_hs_ok;
 }
 
+// tls13_process_certificate_pha processes the certificate message sent in
+// response to a PHA Certificate Request. Returns true on successful processing
+// of the message
+static bool tls13_process_certificate_pha(SSL *ssl, const SSLMessage &msg) {
+  assert(msg.type == SSL3_MT_CERTIFICATE);
+  CBS body = msg.body;
+  CBS context, certificate_list;
+
+  if (!CBS_get_u16_length_prefixed(&body, &context) ||
+      // Context should not be empty
+      CBS_len(&context) == 0 ||
+      !CBS_get_u24_length_prefixed(&body, &certificate_list) ||
+      CBS_len(&body) != 0) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);
+    OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
+    return false;
+  }
+
+  UniquePtr<STACK_OF(CRYPTO_BUFFER)> certs(sk_CRYPTO_BUFFER_new_null());
+  if (!certs) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+    return false;
+  }
+
+  UniquePtr<EVP_PKEY> pkey;
+  while (CBS_len(&certificate_list) > 0) {
+    CBS certificate, extensions;
+    if (!CBS_get_u24_length_prefixed(&certificate_list, &certificate) ||
+        !CBS_get_u16_length_prefixed(&certificate_list, &extensions) ||
+        CBS_len(&certificate) == 0) {
+      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);
+      OPENSSL_PUT_ERROR(SSL, SSL_R_CERT_LENGTH_MISMATCH);
+      return false;
+    }
+
+    if (sk_CRYPTO_BUFFER_num(certs.get()) == 0) {
+      pkey = ssl_cert_parse_pubkey(&certificate);
+      if (!pkey) {
+        ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);
+        OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
+        return false;
+      }
+      // TLS 1.3 always uses certificate keys for signing thus the correct
+      // keyUsage is enforced.
+      if (!ssl_cert_check_key_usage(&certificate,
+                                    key_usage_digital_signature)) {
+        ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_ILLEGAL_PARAMETER);
+        return false;
+      }
+    }
+
+    UniquePtr<CRYPTO_BUFFER> buf(
+        CRYPTO_BUFFER_new_from_CBS(&certificate, ssl->ctx->pool));
+    if (!buf ||
+        !PushToStack(certs.get(), std::move(buf))) {
+      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+      return false;
+    }
+  }
+
+  // Store a null certificate list rather than an empty one if the peer didn't
+  // send certificates.
+  if (sk_CRYPTO_BUFFER_num(certs.get()) == 0) {
+    certs.reset();
+  }
+
+  ssl->s3->pha_config->client_pubkey = std::move(pkey);
+  ssl->s3->pha_config->client_certs = std::move(certs);
+
+  if (sk_CRYPTO_BUFFER_num(ssl->s3->pha_config->client_certs.get()) == 0) {
+    // OpenSSL returns X509_V_OK when no certificates are returned. This is
+    // classed by them as a bug. For the PHA case, to check result,
+    // |SSL_get_verify_result_pha| should be used instead of |verify_result|
+    ssl->s3->pha_config->verify_result = X509_V_OK;
+  }
+
+  return true;
+}
+
+static bool tls13_check_peer_sigalg_pha(SSL *ssl, uint8_t &alert, uint16_t sigalg) {
+  for(uint16_t verify_sigalg : ssl->s3->pha_config->verify_sigalgs) {
+    if (verify_sigalg == sigalg) {
+      return true;
+    }
+  }
+
+  OPENSSL_PUT_ERROR(SSL, SSL_R_WRONG_SIGNATURE_TYPE);
+  alert = SSL_AD_ILLEGAL_PARAMETER;
+  return false;
+}
+
+static bool tls13_process_certificate_verify_pha(SSL *ssl, const SSLMessage &msg) {
+  if(msg.type != SSL3_MT_CERTIFICATE_VERIFY) {
+    // CertificateVerify not sent, next message must be finished. Nothing to do
+    return true;
+  }
+  if (sk_CRYPTO_BUFFER_num(ssl->s3->pha_config->client_certs.get()) == 0) {
+    return true;
+  }
+  if (!ssl->s3->pha_config->custom_verify_callback) {
+    return false;
+  }
+
+  uint8_t alert = SSL_AD_CERTIFICATE_UNKNOWN;
+  enum ssl_verify_result_t ret;
+  ret = ssl->s3->pha_config->custom_verify_callback(ssl, &alert);
+  switch (ret) {
+    case ssl_verify_ok:
+      ssl->s3->pha_config->verify_result = X509_V_OK;
+      break;
+    case ssl_verify_invalid:
+      OPENSSL_PUT_ERROR(SSL, SSL_R_CERTIFICATE_VERIFY_FAILED);
+      ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
+      ssl->s3->pha_config->verify_result = X509_V_ERR_APPLICATION_VERIFICATION;
+      break;
+    case ssl_verify_retry:
+      ret = ssl->s3->pha_config->custom_verify_callback(ssl, &alert);
+      if (ret != ssl_verify_ok) {
+        return false;
+      }
+      ssl->s3->pha_config->verify_result = X509_V_OK;
+  }
+
+  if (ssl->s3->pha_config->client_pubkey == nullptr) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    return false;
+  }
+
+  CBS body = msg.body, signature;
+  uint16_t signature_algorithm;
+  if (!CBS_get_u16(&body, &signature_algorithm) ||
+      !CBS_get_u16_length_prefixed(&body, &signature) ||
+      CBS_len(&body) != 0) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);
+    return false;
+  }
+
+  alert = SSL_AD_DECODE_ERROR;
+  if (!tls13_check_peer_sigalg_pha(ssl, alert, signature_algorithm)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
+    return false;
+  }
+
+  Array<uint8_t> input;
+  if (!tls13_get_cert_verify_signature_input_pha(ssl, &input)) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_INTERNAL_ERROR);
+    return false;
+  }
+
+  if (!ssl_public_key_verify(ssl, signature, signature_algorithm,
+                             ssl->s3->pha_config->client_pubkey.get(),
+                             input)) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_SIGNATURE);
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECRYPT_ERROR);
+    return false;
+  }
+
+  return true;
+}
+
+static bool tls13_process_finished_pha(SSL *ssl, const SSLMessage &msg) {
+  uint8_t verify_data_buf[EVP_MAX_MD_SIZE];
+  Span<const uint8_t> verify_data;
+
+  size_t len;
+  if (!tls13_finished_mac_pha(ssl, verify_data_buf, &len)) {
+    return false;
+  }
+  verify_data = MakeConstSpan(verify_data_buf, len);
+
+  bool finished_ok =
+      CBS_mem_equal(&msg.body, verify_data.data(), verify_data.size());
+
+  if (!finished_ok) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECRYPT_ERROR);
+    OPENSSL_PUT_ERROR(SSL, SSL_R_DIGEST_CHECK_FAILED);
+    return false;
+  }
+
+  return true;
+}
+
+bool tls13_process_client_response_pha(SSL *ssl, const SSLMessage &msg) {
+  assert(ssl->server);
+  if(ssl->s3->pha_ext != SSL_PHA_REQUESTED) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
+    OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
+    return false;
+  }
+
+  // Process Certificate Message
+  if(!tls13_process_certificate_pha(ssl, msg)) {
+    return false;
+  }
+  ssl->method->next_message(ssl);
+
+  SSLMessage msg2;
+  // Process CertificateVerify if any
+  if(!ssl->method->get_message(ssl, &msg2)) {
+    // No finished or CertificateVerify available in pending flight, fatal
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
+    OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
+    return false;
+  }
+
+  if(msg2.type == SSL3_MT_CERTIFICATE_VERIFY) {
+    if(!tls13_process_certificate_verify_pha(ssl, msg2)) {
+      return false;
+    }
+
+    ssl->method->next_message(ssl);
+  }
+
+  // Process Finished
+  SSLMessage msg3;
+  if(!ssl->method->get_message(ssl, &msg3)) {
+    // No Finished available in pending flight, fatal
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
+    OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
+    return false;
+  }
+  if(msg3.type != SSL3_MT_FINISHED) {
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
+    OPENSSL_PUT_ERROR(SSL, SSL3_AD_UNEXPECTED_MESSAGE);
+    return false;
+  }
+  if (!tls13_process_finished_pha(ssl, msg3)) {
+    return false;
+  }
+  ssl->method->next_message(ssl);
+
+  return true;
+}
+
+long SSL_get_verify_result_pha(SSL *ssl) {
+  assert(ssl->server);
+
+  if(ssl->s3->pha_ext != SSL_PHA_REQUESTED) {
+    return X509_V_ERR_INVALID_CALL;
+  }
+
+  if(ssl->s3->pha_config->verify_result != X509_V_OK ||
+      sk_CRYPTO_BUFFER_num(ssl->s3->pha_config->client_certs.get()) == 0) {
+    return ssl->s3->pha_config->verify_result;
+  }
+
+  return X509_V_OK;
+}
+
 static enum ssl_hs_wait_t do_read_channel_id(SSL_HANDSHAKE *hs) {
   SSL *const ssl = hs->ssl;
   if (!hs->channel_id_negotiated) {
@@ -1257,7 +1507,6 @@ static enum ssl_hs_wait_t do_read_client_finished(SSL_HANDSHAKE *hs) {
   return ssl_hs_ok;
 }
 
-
 // |do_certificate_request_pha| processes PHA when server request client
 // authentication immediately after the initial handshake.
 static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
@@ -1279,6 +1528,18 @@ static enum ssl_hs_wait_t do_certificate_request_pha(SSL_HANDSHAKE *hs) {
       // Note, this value may be NULL
       ssl->s3->pha_config->names = ssl_get_client_CAs_pha(hs);
     }
+
+    if(ssl->config->custom_verify_callback != nullptr) {
+      ssl->s3->pha_config->custom_verify_callback = std::move(ssl->config->custom_verify_callback);
+    }
+
+    Span<uint8_t> original = hs->client_handshake_secret();
+    uint8_t *copiedData = new uint8_t[original.size()];
+    OPENSSL_memcpy(copiedData, original.data(), original.size());
+    Span<uint8_t> copiedSpan(copiedData, original.size());
+    ssl->s3->pha_config->client_handshake_secret = copiedSpan;
+
+    ssl->s3->pha_config->transcript = std::move(hs->transcript);
   }
 
   // Cert request wasn't sent in initial handshake but client auth is requested,

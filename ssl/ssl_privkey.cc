@@ -228,6 +228,44 @@ static bool setup_ctx(SSL *ssl, EVP_MD_CTX *ctx, EVP_PKEY *pkey,
   return true;
 }
 
+enum ssl_private_key_result_t ssl_private_key_sign_pha(
+    SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out,
+   uint16_t sigalg, Span<const uint8_t> in) {
+
+  assert(!ssl->server);
+  PHA_Config *config = ssl->s3->pha_config.get();
+  const SSL_PRIVATE_KEY_METHOD *key_method = config->client_cert->key_method;
+  if (!ssl_cert_check_cert_private_keys_usage(  config->client_cert.get())) {
+    return ssl_private_key_failure;
+  }
+  EVP_PKEY *privatekey =
+      config->client_cert
+          ->cert_private_keys[config->client_cert->cert_private_key_idx]
+          .privatekey.get();
+
+  if (key_method != NULL) {
+    enum ssl_private_key_result_t ret =
+        key_method->sign(ssl, out, out_len, max_out, sigalg, in.data(), in.size());
+
+    if(ret == ssl_private_key_retry) {
+      ret = key_method->complete(ssl, out, out_len, max_out);
+    }
+    if (ret != ssl_private_key_success) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_PRIVATE_KEY_OPERATION_FAILED);
+    }
+
+  } else {
+    *out_len = max_out;
+    ScopedEVP_MD_CTX ctx;
+    if (!setup_ctx(ssl, ctx.get(), privatekey, sigalg, false /* sign */) ||
+        !EVP_DigestSign(ctx.get(), out, out_len, in.data(), in.size())) {
+      return ssl_private_key_failure;
+    }
+  }
+
+  return ssl_private_key_success;
+}
+
 enum ssl_private_key_result_t ssl_private_key_sign(
     SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len, size_t max_out,
     uint16_t sigalg, Span<const uint8_t> in) {
@@ -367,10 +405,12 @@ enum ssl_private_key_result_t ssl_private_key_decrypt(SSL_HANDSHAKE *hs,
   return ssl_private_key_success;
 }
 
-bool ssl_private_key_supports_signature_algorithm(SSL_HANDSHAKE *hs,
-                                                  uint16_t sigalg) {
-  SSL *const ssl = hs->ssl;
-  if (!pkey_supports_algorithm(ssl, hs->local_pubkey.get(), sigalg)) {
+// ssl_private_key_supports_signature_algorithm_helper abstracts
+// functionality from |ssl_private_key_supports_signature_algorithm| to
+// accommodate the PHA case where |client_pubkey| is in a different
+// location.
+static bool ssl_private_key_supports_signature_algorithm_helper(SSL *ssl, EVP_PKEY *client_pubkey, uint16_t sigalg) {
+  if (!pkey_supports_algorithm(ssl, client_pubkey, sigalg)) {
     return false;
   }
 
@@ -381,12 +421,22 @@ bool ssl_private_key_supports_signature_algorithm(SSL_HANDSHAKE *hs,
   // SHA-512. 1024-bit RSA is sometimes used for test credentials, so check the
   // size so that we can fall back to another algorithm in that case.
   const SSL_SIGNATURE_ALGORITHM *alg = get_signature_algorithm(sigalg);
-  if (alg->is_rsa_pss && (size_t)EVP_PKEY_size(hs->local_pubkey.get()) <
+  if (alg->is_rsa_pss && (size_t)EVP_PKEY_size(client_pubkey) <
                              2 * EVP_MD_size(alg->digest_func()) + 2) {
     return false;
   }
 
   return true;
+}
+
+bool ssl_private_key_supports_signature_algorithm_pha(SSL *ssl, uint16_t sigalg) {
+  assert(!ssl->server);
+  return ssl_private_key_supports_signature_algorithm_helper(ssl, ssl->s3->pha_config->client_pubkey.get(), sigalg);
+}
+
+bool ssl_private_key_supports_signature_algorithm(SSL_HANDSHAKE *hs,
+                                                  uint16_t sigalg) {
+  return ssl_private_key_supports_signature_algorithm_helper(hs->ssl, hs->local_pubkey.get(), sigalg);
 }
 
 BSSL_NAMESPACE_END

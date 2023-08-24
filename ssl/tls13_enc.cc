@@ -353,20 +353,36 @@ static bool tls13_verify_data(uint8_t *out, size_t *out_len,
   return true;
 }
 
+// tls13_finished_mac_helper abstracts functionality from
+// |tls13_finished_mac| to account for the PHA case where |transcript| is not
+// located in the same place and |hs_secret| may be different
+static bool tls13_finished_mac_helper(SSL *ssl, SSLTranscript &transcript,
+                                      uint8_t *out, size_t *out_len,
+                                      Span<const uint8_t> &hs_secret) {
+  uint8_t context_hash[EVP_MAX_MD_SIZE];
+  size_t context_hash_len;
+  if (!transcript.GetHash(context_hash, &context_hash_len) ||
+      !tls13_verify_data(out, out_len, transcript.Digest(),
+                         ssl->version, hs_secret,
+                         MakeConstSpan(context_hash, context_hash_len))) {
+    return false;
+  }
+  return true;
+}
+
 bool tls13_finished_mac(SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len,
                         bool is_server) {
   Span<const uint8_t> traffic_secret =
       is_server ? hs->server_handshake_secret() : hs->client_handshake_secret();
 
-  uint8_t context_hash[EVP_MAX_MD_SIZE];
-  size_t context_hash_len;
-  if (!hs->transcript.GetHash(context_hash, &context_hash_len) ||
-      !tls13_verify_data(out, out_len, hs->transcript.Digest(),
-                         hs->ssl->version, traffic_secret,
-                         MakeConstSpan(context_hash, context_hash_len))) {
-    return false;
-  }
-  return true;
+  return tls13_finished_mac_helper(hs->ssl, hs->transcript, out, out_len, traffic_secret);
+}
+
+bool tls13_finished_mac_pha(SSL *ssl, uint8_t *out, size_t *out_len) {
+  PHA_Config *config = ssl->s3->pha_config.get();
+  Span<const uint8_t> traffic_secret = config->client_handshake_secret;
+
+  return tls13_finished_mac_helper(ssl, config->transcript, out, out_len, traffic_secret);
 }
 
 static const char kTLS13LabelResumptionPSK[] = "resumption";

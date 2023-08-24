@@ -1064,11 +1064,24 @@ enum ssl_private_key_result_t ssl_private_key_sign(
     SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len, size_t max_out,
     uint16_t sigalg, Span<const uint8_t> in);
 
+// ssl_private_key_sign_pha works the same as |ssl_private_key_sign| but
+// is used in the PHA case where the handshake object is not available. Hints
+// are not supported.
+enum ssl_private_key_result_t ssl_private_key_sign_pha(
+    SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out,
+    uint16_t sigalg, Span<const uint8_t> in);
+
 enum ssl_private_key_result_t ssl_private_key_decrypt(SSL_HANDSHAKE *hs,
                                                       uint8_t *out,
                                                       size_t *out_len,
                                                       size_t max_out,
                                                       Span<const uint8_t> in);
+
+// ssl_private_key_supports_signature_algorithm_pha returns whether |ssl|'s
+// private key supports |sigalg|. Used in the PHA case where hs object is
+// unavailable.
+bool ssl_private_key_supports_signature_algorithm_pha(SSL *ssl,
+                                                      uint16_t sigalg);
 
 // ssl_private_key_supports_signature_algorithm returns whether |hs|'s private
 // key supports |sigalg|.
@@ -1347,6 +1360,10 @@ int ssl_write_buffer_flush(SSL *ssl);
 // configured.
 bool ssl_has_certificate(const SSL_HANDSHAKE *hs);
 
+// ssl_has_certificate_pha returns whether a certificate and private key are
+// configured for the pha case where the handshake object is not available.
+bool ssl_has_certificate_pha(const SSL *ssl);
+
 // ssl_parse_cert_chain parses a certificate list from |cbs| in the format used
 // by a TLS Certificate message. On success, it advances |cbs| and returns
 // true. Otherwise, it returns false and sets |*out_alert| to an alert to send
@@ -1422,6 +1439,12 @@ bool ssl_check_leaf_certificate(SSL_HANDSHAKE *hs, EVP_PKEY *pkey,
 // true on success and false on error.
 bool ssl_on_certificate_selected(SSL_HANDSHAKE *hs);
 
+// ssl_on_certificate_selected_pha is called once the certificate has been
+// selected. It finalizes the certificate and initializes
+// |ssl->s3->pha_config->client_pubkey|. It returns true on success and
+// false on error.
+bool ssl_on_certificate_selected_pha(SSL *ssl);
+
 
 // TLS 1.3 key derivation.
 
@@ -1482,7 +1505,12 @@ bool tls13_export_keying_material(SSL *ssl, Span<uint8_t> out,
 bool tls13_finished_mac(SSL_HANDSHAKE *hs, uint8_t *out, size_t *out_len,
                         bool is_server);
 
-// tls13_derive_session_psk calculates the PSK for this session based on the
+// tls13_finished_mac_pha works the same as |tls13_finished_mac| but is used for
+// the PHA case where the handshake object is not available. It calculates the
+// MAC for the client Finished.
+bool tls13_finished_mac_pha(SSL *ssl, uint8_t *out, size_t *out_len);
+
+    // tls13_derive_session_psk calculates the PSK for this session based on the
 // resumption master secret and |nonce|. It returns true on success, and false
 // on failure.
 bool tls13_derive_session_psk(SSL_SESSION *session, Span<const uint8_t> nonce);
@@ -2204,6 +2232,16 @@ bool tls13_add_key_update(SSL *ssl, int update_requested);
 // true on success and false on failure.
 bool tls13_add_certificate_request(SSL *ssl);
 
+// tls13_process_certificate_request processes the CertificateRequest in |msg|
+// and returns true if processing is successful and response is sent, and false
+// otherwise.
+bool tls13_process_certificate_request_pha(SSL *ssl, const SSLMessage &msg);
+
+// tls13_process_client_response_pha processes the client response to a PHA
+// CertificateRequest. It receives the Certificate message in |msg| and
+// processes the pending flight of ssl messages.
+bool tls13_process_client_response_pha(SSL *ssl, const SSLMessage &msg);
+
 // tls13_post_handshake processes a post-handshake message. It returns true on
 // success and false on failure.
 bool tls13_post_handshake(SSL *ssl, const SSLMessage &msg);
@@ -2220,15 +2258,29 @@ bool tls13_process_finished(SSL_HANDSHAKE *hs, const SSLMessage &msg,
 
 bool tls13_add_certificate(SSL_HANDSHAKE *hs);
 
+// tls13_add_certificate_pha constructs and adds a Certificate message to the
+// passed in |SSL| object. Extensions such as timestamp, OCSP,
+// delegated credentials and certificate compression are not supported and
+// can be added later if needed.
+bool tls13_add_certificate_pha(SSL *ssl);
+
 // tls13_add_certificate_verify adds a TLS 1.3 CertificateVerify message to the
 // handshake. If it returns |ssl_private_key_retry|, it should be called again
 // to retry when the signing operation is completed.
 enum ssl_private_key_result_t tls13_add_certificate_verify(SSL_HANDSHAKE *hs);
 
+// tls13_add_certificate_verify_pha adds a TLS 1.3 CertificateVerify message
+// for the client in response to a post handshake authentication request.
+enum ssl_private_key_result_t tls13_add_certificate_verify_pha(SSL *ssl);
+
 bool tls13_add_finished(SSL_HANDSHAKE *hs);
 bool tls13_process_new_session_ticket(SSL *ssl, const SSLMessage &msg);
 bssl::UniquePtr<SSL_SESSION> tls13_create_session_with_ticket(SSL *ssl,
                                                               CBS *body);
+
+// tls13_add_finished_pha works the same way as tls13_add_finished but is
+// used in the PHA case where the handshake object is not available.
+bool tls13_add_finished_pha(SSL *ssl);
 
 // ssl_setup_extension_permutation computes a ClientHello extension permutation
 // for |hs|, if applicable. It returns true on success and false on error.
@@ -2303,6 +2355,21 @@ enum ssl_cert_verify_context_t {
 bool tls13_get_cert_verify_signature_input(
     SSL_HANDSHAKE *hs, Array<uint8_t> *out,
     enum ssl_cert_verify_context_t cert_verify_context);
+
+// tls13_get_cert_verify_signature_input_pha generates message to be signed for
+// TLS 1.3's CertificateVerify message. |cert_verify_context| is always
+// |ssl_cert_verify_client| and is specified in the helper called in this
+// function. It sets |*out| to a newly allocated buffer
+// containing the result. This is used in the PHA case where the handshake
+// object is not available.
+bool tls13_get_cert_verify_signature_input_pha(SSL *ssl, Array<uint8_t> *out);
+
+// SSL_get_verify_result_pha returns the result of PHA request. It returns
+// |X509_V_OK| if the custom verification callback was successful and a valid
+// response was provided. Otherwise, return values could be
+// |X509_V_ERR_APPLICATION_VERIFICATION| when callback fails or no certs
+// provided, or |X509_V_INVALID_CALL| if PHA was not requested.
+long SSL_get_verify_result_pha(SSL *ssl);
 
 // ssl_is_valid_alpn_list returns whether |in| is a valid ALPN protocol list.
 bool ssl_is_valid_alpn_list(Span<const uint8_t> in);
@@ -2415,6 +2482,11 @@ uint16_t ssl_get_grease_value(const SSL_HANDSHAKE *hs,
 // error.
 bool tls1_parse_peer_sigalgs(SSL_HANDSHAKE *hs, const CBS *sigalgs);
 
+// tls13_parse_peer_sigalgs_pha parses |sigalgs| as the list of peer signature
+// algorithms and saves them on |ssl|. This is specifically for the pha case
+// where we don't have the handshake object available.
+bool tls13_parse_peer_sigalgs_pha(SSL *ssl, const CBS *in_sigalgs);
+
 // tls1_get_legacy_signature_algorithm sets |*out| to the signature algorithm
 // that should be used with |pkey| in TLS 1.1 and earlier. It returns true on
 // success and false if |pkey| may not be used at those versions.
@@ -2424,6 +2496,8 @@ bool tls1_get_legacy_signature_algorithm(uint16_t *out, const EVP_PKEY *pkey);
 // with |hs|'s private key based on the peer's preferences and the algorithms
 // supported. It returns true on success and false on error.
 bool tls1_choose_signature_algorithm(SSL_HANDSHAKE *hs, uint16_t *out);
+
+bool tls13_choose_signature_algorithm_pha(SSL *ssl, uint16_t *out);
 
 // tls1_get_peer_verify_algorithms returns the signature schemes for which the
 // peer indicated support.
@@ -2767,15 +2841,47 @@ enum ssl_ech_status_t {
 // at the end of the connection
 struct PHA_Config {
   static constexpr bool kAllowUniquePtr = true;
-  // Holds negotiated sigalgs from the handshake for CertificateRequest message
+
+  // verify_sigalgs holds negotiated sigalgs from the handshake for
+  // the CertificateRequest message
   Array<uint16_t> verify_sigalgs;
 
-  // Holds CA's accepted by the server for CertificateRequest message
+  // names holds CA's accepted by the server for CertificateRequest message
   const STACK_OF(CRYPTO_BUFFER) *names;
 
+  // client_certs contains the certificate chain from the peer, starting with
+  // the leaf certificate.
+  bssl::UniquePtr<STACK_OF(CRYPTO_BUFFER)> client_certs;
+
   // Holds original transcript hash for CertificateVerify from client response
-  uint8_t handshake_transcript_hash[EVP_MAX_MD_SIZE];
-  size_t handshake_transcript_hash_len;
+  // for PHA
+  SSLTranscript transcript;
+
+  // client_cert is the configured client certificate
+  UniquePtr<CERT> client_cert;
+
+  // client_pubkey is the public key the client is authenticating as
+  UniquePtr<EVP_PKEY> client_pubkey;
+
+  // request_context is the context from CertificateRequest
+  // to be used by client when responding in Certificate message
+  uint8_t request_context[16];
+
+  // client_handshake_secret holds client handshake secret for Client Finished
+  Span<uint8_t> client_handshake_secret;
+
+  // custom_verify_callback holds the custom verification function specified
+  // via server to verify the client Certificate
+  enum ssl_verify_result_t (*custom_verify_callback)(
+      SSL *ssl, uint8_t *out_alert) = nullptr;
+
+  long verify_result = X509_V_ERR_INVALID_CALL;
+
+  // scts_requested is true if the SCT extension is in the ClientHello.
+  bool scts_requested : 1;
+
+  // ocsp_stapling_requested is true if a client requested OCSP stapling.
+  bool ocsp_stapling_requested : 1;
 };
 
 #define SSL3_SEND_ALERT_SIZE 2

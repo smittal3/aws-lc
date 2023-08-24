@@ -8928,6 +8928,11 @@ TEST(SSLTest, ImmediatePHA) {
   // handshake
   SSL_CTX_set_verify(server_ctx.get(), SSL_VERIFY_PEER | SSL_VERIFY_POST_HANDSHAKE, nullptr);
 
+  // Custom verification functions that return ok
+  SSL_CTX_set_custom_verify(
+      server_ctx.get(), SSL_VERIFY_PEER | SSL_VERIFY_POST_HANDSHAKE,
+      [](SSL *ssl, uint8_t *out_alert) { return ssl_verify_ok; });
+
   // Configure trust store for server.
   SSL_CTX_set_client_CA_list(server_ctx.get(), get_test_cert_store());
 
@@ -8954,9 +8959,27 @@ TEST(SSLTest, ImmediatePHA) {
   // should be false so CertificateRequest not sent in initial message
   EXPECT_FALSE(server.get()->s3->hs->cert_request);
 
+  // Store client information before duplication
+  CERT *client_cert_before = client->s3->hs->config->cert.get();
+  bool scts_before = client.get()->s3->hs->scts_requested;
+  bool ocsp_before = client.get()->s3->hs->ocsp_stapling_requested;
+
+  EXPECT_FALSE(client.get()->s3->pha_config);
+
   // Second client flight, process server messages and send client Finished
   SSL_do_handshake(client.get());
   EXPECT_TRUE(client.get()->s3->pha_ext == SSL_PHA_EXT_SENT);
+
+  // Store state after
+  CERT *client_cert_after = client.get()->s3->pha_config->client_cert.get();
+
+  // Should have initialized PHA_Config on client side since pha is enabled
+  // and should have copied appropriate data
+  EXPECT_TRUE(client.get()->s3->pha_config);
+  EXPECT_EQ(client_cert_before->cert_private_key_idx, client_cert_after->cert_private_key_idx);
+  EXPECT_EQ(client_cert_before->cert_private_keys.size(), client_cert_after->cert_private_keys.size());
+  EXPECT_EQ(scts_before, client.get()->s3->pha_config->scts_requested);
+  EXPECT_EQ(ocsp_before, client.get()->s3->pha_config->ocsp_stapling_requested);
 
   // Storing sigalgs since handshake object is destroyed in next server processing
   Array<uint16_t> verify_sigalgs = tls13_get_verify_sigalgs_pha(server.get()->s3->hs.get());
@@ -8986,7 +9009,7 @@ TEST(SSLTest, ImmediatePHA) {
 
   //Verify copying of CAs
   // Check size
-  EXPECT_TRUE(sk_CRYPTO_BUFFER_num(names) == sk_CRYPTO_BUFFER_num(names_copy));
+  EXPECT_EQ(sk_CRYPTO_BUFFER_num(names), sk_CRYPTO_BUFFER_num(names_copy));
 
   // Check each element
   for (size_t i = 0; i < sk_CRYPTO_BUFFER_num(names); i++) {
@@ -9015,6 +9038,28 @@ TEST(SSLTest, ImmediatePHA) {
   // Client processes it, should parse and call tls13_post_handshake where
   // function to process the CertificateRequest is used
   SSL_read(client.get(), nullptr, 0);
+
+  // No pending data should be on wire
+  EXPECT_FALSE(client.get()->s3->pending_hs_data);
+
+  // Ensure data parsed from CertificateRequest
+  Array<uint16_t>& sigalgs_client_copy = client.get()->s3->pha_config->verify_sigalgs;
+
+  // Verify copying of sigalgs
+  EXPECT_TRUE(sigalgs_client_copy.data() != nullptr);
+  EXPECT_TRUE(verify_sigalgs.size() == sigalgs_client_copy.size());
+  // Check if the contents are the same in the same order
+  for (size_t i = 0; i < verify_sigalgs.size(); ++i) {
+    EXPECT_EQ(verify_sigalgs[i], sigalgs_client_copy[i]);
+  }
+  // Check if the underlying data is different (deep copy check)
+  EXPECT_TRUE(verify_sigalgs.data() != sigalgs_client_copy.data());
+
+  // Arbitrary read length, we still process full flight of pending messages
+  // SSL_read(server.get(), nullptr, 2);
+
+  // Ensure verification result is successful
+  // EXPECT_EQ(SSL_get_verify_result_pha(server.get()), X509_V_OK);
 }
 
 // Testing: when PHA extension is sent by the client and the server does not a
