@@ -940,12 +940,6 @@ void SSL_set_post_handshake_auth(SSL *ssl, int val) {
   ssl->s3->pha_enabled = val;
 }
 
-// SSL_verify_client_post_handshake puts a CertificateRequest on the wire
-// to authenticate the client post handshake. The request is not flushed until
-// the next server write. Returns 1 on success and 0 otherwise.
-
-// TO-DO: SHOULD WE BE FLUSHING IN THIS CASE? SINCE THIS IS AFTER THE HANDSHAKE
-// TO-DO: Verify what error messages should be returned
 int SSL_verify_client_post_handshake(SSL *ssl) {
   ssl_reset_error_state(ssl);
 
